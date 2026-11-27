@@ -380,7 +380,10 @@ class MainActivity : ComponentActivity() {
                                                         onAppThemeChange = { viewModel.setAppTheme(it) },
                                                         isGridMode = uiState.isGridMode,
                                                         onToggleGridMode = { viewModel.toggleGridMode() },
-                                                        onRefresh = { viewModel.loadAudioFiles(forceSync = true) },
+                                                        onRefresh = {
+                                                            viewModel.loadAudioFiles(forceSync = true)
+                                                            scope.launch { drawerState.close() }
+                                                        },
                                                         isScanning = uiState.isLoading,
                                                         songCount = uiState.allSongsList.size.coerceAtLeast(uiState.songList.size),
                                                         playlistCount = uiState.playlists.size,
@@ -404,41 +407,41 @@ class MainActivity : ComponentActivity() {
                                                         onSetCustomSleepTimer = { viewModel.setCustomSleepTimer(it) },
                                                         onOpenSleepTimer = {
                                                             scope.launch {
-                                                                drawerState.close()
-                                                                showSleepTimerSheet = true
+                                                                try {
+                                                                    drawerState.close()
+                                                                } finally {
+                                                                    showSleepTimerSheet = true
+                                                                }
                                                             }
                                                         },
                                                         onOpenExcludedItems = {
-                                                            scope.launch {
-                                                                drawerState.close()
-                                                                viewModel.selectTab(NavigationTab.HIDDEN_ITEMS)
-                                                            }
+                                                            viewModel.selectTab(NavigationTab.HIDDEN_ITEMS)
+                                                            scope.launch { drawerState.close() }
                                                         },
                                                         onCreatePlaylist = {
                                                             scope.launch {
-                                                                drawerState.close()
-                                                                viewModel.setShowCreatePlaylistDialog(true)
+                                                                try {
+                                                                    drawerState.close()
+                                                                } finally {
+                                                                    viewModel.setShowCreatePlaylistDialog(true)
+                                                                }
                                                             }
                                                         },
                                                         onNavigateTab = { tab ->
-                                                            scope.launch {
-                                                                drawerState.close()
-                                                                viewModel.selectTab(tab)
-                                                            }
+                                                            viewModel.selectTab(tab)
+                                                            scope.launch { drawerState.close() }
                                                         },
                                                         onOpenSettingsSubPage = { subPage ->
-                                                            scope.launch {
-                                                                drawerState.close()
-                                                                viewModel.clearSubPageBackStack()
-                                                                viewModel.setSettingsSubPage(subPage)
-                                                                viewModel.selectTab(NavigationTab.SETTINGS)
-                                                            }
+                                                            viewModel.clearSubPageBackStack()
+                                                            viewModel.setSettingsSubPage(subPage)
+                                                            viewModel.selectTab(NavigationTab.SETTINGS)
+                                                            scope.launch { drawerState.close() }
                                                         },
                                                         onCloseDrawer = { scope.launch { drawerState.close() } }
                                                     )
                                                 }
                                             },
-                                            gesturesEnabled = false
+                                            gesturesEnabled = drawerState.isOpen
                                         ) {
                                             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                                                 Box(

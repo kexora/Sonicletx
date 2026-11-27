@@ -68,6 +68,7 @@ import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -169,17 +170,17 @@ fun AppSidebarDrawer(
     val drawerBorderColor = MaterialTheme.colorScheme.outlineVariant
 
     // Flush edge-anchored side sheet: 0dp radius on screen-attached edge, 20dp radius ONLY on inner exposed edge
-    Surface(
+    ModalDrawerSheet(
         modifier = Modifier
             .fillMaxHeight()
             .fillMaxWidth(0.84f)
             .widthIn(max = 312.dp)
             .testTag("app_sidebar_drawer"),
-        color = drawerSurface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp, topEnd = 0.dp, bottomEnd = 0.dp),
-        tonalElevation = 0.dp,
-        shadowElevation = 18.dp
+        drawerShape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp, topEnd = 0.dp, bottomEnd = 0.dp),
+        drawerContainerColor = drawerSurface,
+        drawerContentColor = MaterialTheme.colorScheme.onSurface,
+        drawerTonalElevation = 0.dp,
+        windowInsets = WindowInsets(0, 0, 0, 0)
     ) {
         Column(
             modifier = Modifier
@@ -291,7 +292,6 @@ fun AppSidebarDrawer(
                                 .clickable {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     onNavigateTab(NavigationTab.HOME)
-                                    onCloseDrawer()
                                 }
                                 .padding(vertical = 2.dp, horizontal = 2.dp)
                         ) {
@@ -412,7 +412,6 @@ fun AppSidebarDrawer(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onNavigateTab(NavigationTab.QUEUE)
-                            onCloseDrawer()
                         }
                     )
 
@@ -438,7 +437,6 @@ fun AppSidebarDrawer(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onNavigateTab(NavigationTab.DRIVE_MODE)
-                            onCloseDrawer()
                         }
                     )
 
@@ -452,7 +450,6 @@ fun AppSidebarDrawer(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onRefresh()
-                            onCloseDrawer()
                         }
                     )
 
@@ -465,7 +462,6 @@ fun AppSidebarDrawer(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onOpenSettingsSubPage(SettingsSubPage.EQUALIZER)
-                            onCloseDrawer()
                         }
                     )
                 }
@@ -506,7 +502,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_widgets",
                         onClick = {
                             onOpenSettingsSubPage(SettingsSubPage.WIDGETS)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -518,7 +513,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_audio_extractor",
                         onClick = {
                             onOpenSettingsSubPage(SettingsSubPage.VIDEO_TO_M4A)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -530,7 +524,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_folders",
                         onClick = {
                             onOpenSettingsSubPage(SettingsSubPage.AUDIO_FOLDERS)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -543,7 +536,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_duplicates",
                         onClick = {
                             onNavigateTab(NavigationTab.DUPLICATES)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -558,7 +550,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_hidden",
                         onClick = {
                             onOpenExcludedItems?.invoke() ?: onNavigateTab(NavigationTab.HIDDEN_ITEMS)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -571,7 +562,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_wrapped",
                         onClick = {
                             onNavigateTab(NavigationTab.STATS)
-                            onCloseDrawer()
                         }
                     )
                 )
@@ -592,7 +582,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_equalizer",
                         onClick = {
                             onOpenSettingsSubPage(SettingsSubPage.EQUALIZER)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -611,7 +600,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_playback",
                         onClick = {
                             onOpenSettingsSubPage(SettingsSubPage.PLAYBACK_SETTINGS)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -629,7 +617,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_appearance",
                         onClick = {
                             onOpenSettingsSubPage(SettingsSubPage.APPEARANCE)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -648,7 +635,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_motion",
                         onClick = {
                             onOpenSettingsSubPage(SettingsSubPage.MOTION_CONTROLS)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -660,7 +646,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_gestures",
                         onClick = {
                             onOpenSettingsSubPage(SettingsSubPage.GESTURES_GUIDE)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -675,7 +660,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_radio",
                         onClick = {
                             onNavigateTab(NavigationTab.RADIO)
-                            onCloseDrawer()
                         }
                     )
                 )
@@ -690,7 +674,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_permissions",
                         onClick = {
                             onOpenSettingsSubPage(SettingsSubPage.PERMISSIONS)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -702,7 +685,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_user_guide",
                         onClick = {
                             onOpenSettingsSubPage(SettingsSubPage.MANUAL_ALL)
-                            onCloseDrawer()
                         }
                     ),
                     DrawerItem(
@@ -716,7 +698,6 @@ fun AppSidebarDrawer(
                         testTag = "drawer_item_about",
                         onClick = {
                             onOpenSettingsSubPage(SettingsSubPage.ABOUT)
-                            onCloseDrawer()
                         }
                     )
                 )
@@ -740,7 +721,6 @@ fun AppSidebarDrawer(
                             badgeColor = Color(0xFFEC4899),
                             onClick = {
                                 onOpenSettingsSubPage(SettingsSubPage.ABOUT)
-                                onCloseDrawer()
                             }
                         )
                     }
