@@ -12,22 +12,14 @@ import androidx.core.content.ContextCompat
 
 /**
  * Google Play compliant MediaStore & Storage Access Framework (SAF) permission helper.
- * Relies strictly on READ_MEDIA_AUDIO / READ_MEDIA_VIDEO (API 33+) and READ_EXTERNAL_STORAGE (API <= 32).
+ * Relies strictly on READ_MEDIA_AUDIO (API 33+) and READ_EXTERNAL_STORAGE (API <= 32).
+ * Image and video selection uses zero-permission system pickers (Photo Picker / SAF).
  */
 object StoragePermissionHelper {
 
     fun hasMediaAudioAccess(context: Context): Boolean {
         val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             Manifest.permission.READ_MEDIA_AUDIO
-        } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        }
-        return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
-    }
-
-    fun hasMediaVideoAccess(context: Context): Boolean {
-        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Manifest.permission.READ_MEDIA_VIDEO
         } else {
             Manifest.permission.READ_EXTERNAL_STORAGE
         }

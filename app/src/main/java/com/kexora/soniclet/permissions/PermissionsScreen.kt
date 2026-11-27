@@ -48,14 +48,8 @@ fun PermissionsSettingsSubPage() {
     } else {
         android.Manifest.permission.READ_EXTERNAL_STORAGE
     }
-    val videoPermissionStr = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        android.Manifest.permission.READ_MEDIA_VIDEO
-    } else {
-        android.Manifest.permission.READ_EXTERNAL_STORAGE
-    }
 
     var hasAudioPermission by remember { mutableStateOf(isGranted(audioPermissionStr)) }
-    var hasVideoPermission by remember { mutableStateOf(isGranted(videoPermissionStr)) }
     var hasNotificationPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
@@ -83,9 +77,6 @@ fun PermissionsSettingsSubPage() {
         if (!granted) {
             Toast.makeText(context, "MediaStore audio permission is required to play local songs.", Toast.LENGTH_SHORT).show()
         }
-    }
-    val videoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        hasVideoPermission = granted
     }
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         hasNotificationPermission = granted
@@ -130,7 +121,6 @@ fun PermissionsSettingsSubPage() {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasAudioPermission = isGranted(audioPermissionStr)
-                hasVideoPermission = isGranted(videoPermissionStr)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     hasNotificationPermission = isGranted(android.Manifest.permission.POST_NOTIFICATIONS)
                 }
@@ -179,24 +169,6 @@ fun PermissionsSettingsSubPage() {
                 }
             }
         )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            EdgeHairlineDivider()
-            PermissionItemRow(
-                icon = Icons.Rounded.VideoLibrary,
-                iconTint = Color(0xFFFF9100),
-                title = "Video Library (Audio Extractor)",
-                subtitle = "Used by the Video to M4A Converter to list local video files via MediaStore",
-                isGranted = hasVideoPermission,
-                onClick = {
-                    if (!hasVideoPermission) {
-                        videoLauncher.launch(videoPermissionStr)
-                    } else {
-                        openSettings()
-                    }
-                }
-            )
-        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             EdgeHairlineDivider()

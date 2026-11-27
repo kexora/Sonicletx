@@ -116,7 +116,7 @@ fun VideoToM4aScreen(
     }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) loadVideo(uri)
     }
@@ -526,7 +526,7 @@ fun VideoToM4aScreen(
 
                     // Fallback File Explorer
                     OutlinedButton(
-                        onClick = { filePickerLauncher.launch("video/*") },
+                        onClick = { filePickerLauncher.launch(arrayOf("video/*")) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(44.dp),
