@@ -29,6 +29,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -65,16 +66,45 @@ fun DhunArtBackdrop(
     bgScale: Float
 ) {
     val context = LocalContext.current
-    val solidBase = Color(0xFF070B09)
+    val isAppLightMode = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    val hasArtwork = song.albumArtUri != null
 
-    // Layer 1: 100% opaque obsidian base — guarantees zero bleed-through from Home/Songs/MiniPlayer
+    if (!hasArtwork && isAppLightMode) {
+        // Light Mode fallback when track has no cover art: clean semantic canvas with soft accent crown glow
+        val baseLight = MaterialTheme.colorScheme.background
+        val primary = MaterialTheme.colorScheme.primary
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(baseLight)
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.00f to primary.copy(alpha = 0.12f),
+                            0.28f to primary.copy(alpha = 0.04f),
+                            0.65f to Color.Transparent,
+                            1.00f to Color.Transparent
+                        )
+                    )
+                )
+        )
+        return
+    }
+
+    val solidBase = Color(0xFF060807)
+
+    // Layer 1: 100% opaque OLED base — guarantees zero bleed-through from Home/Songs/MiniPlayer
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(solidBase)
     )
 
-    // Layer 2: Ambient color wash for tracks without artwork and instant frame-1 color richness
+    // Layer 2: Ambient color wash for instant frame-1 color richness
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -90,7 +120,7 @@ fun DhunArtBackdrop(
     )
 
     // Layer 3: Full-bleed heavily blurred album artwork
-    if (song.albumArtUri != null) {
+    if (hasArtwork) {
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(song.albumArtUri)
@@ -118,9 +148,9 @@ fun DhunArtBackdrop(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xA6070B09),
-                        Color(0xCC070B09),
-                        Color(0xF5070B09)
+                        Color(0xA6060807),
+                        Color(0xCC060807),
+                        Color(0xF5060807)
                     )
                 )
             )

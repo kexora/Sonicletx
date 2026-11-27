@@ -385,12 +385,14 @@ fun WrappedScreen(
     val topArtistName = topArtists.firstOrNull()?.name ?: "—"
     val playableTopSongs = remember(wrappedEntries) { wrappedEntries.mapNotNull { it.liveSong } }
 
+    val primaryAccent = MaterialTheme.colorScheme.primary
     val statCapsules = remember(
         sonicPersona,
         totalListeningTimeMs,
         uniqueTracksCount,
         topArtistName,
-        totalPlaysCount
+        totalPlaysCount,
+        primaryAccent
     ) {
         listOf(
             WrappedStatCapsule(
@@ -405,7 +407,7 @@ fun WrappedScreen(
                 label = "Playtime",
                 value = formatWrappedDuration(totalListeningTimeMs),
                 icon = Icons.Rounded.Schedule,
-                accent = WrappedGreenPillBg
+                accent = primaryAccent
             ),
             WrappedStatCapsule(
                 id = "tracks",
@@ -441,7 +443,6 @@ fun WrappedScreen(
         state = listState,
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .scrollFade(listState)
             .testTag("wrapped_screen"),
         contentPadding = PaddingValues(top = 0.dp, bottom = resolvedBottomPadding),
@@ -689,20 +690,10 @@ private fun WrappedHeroBanner(
     modifier: Modifier = Modifier
 ) {
     val primary = MaterialTheme.colorScheme.primary
-    val ambientWash = remember(primary) {
-        Brush.verticalGradient(
-            colors = listOf(
-                primary.copy(alpha = 0.16f),
-                primary.copy(alpha = 0.05f),
-                Color.Transparent
-            )
-        )
-    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(ambientWash)
             .padding(horizontal = 12.dp, vertical = 14.dp)
             .testTag("wrapped_hero_banner")
     ) {
@@ -789,9 +780,9 @@ private fun WrappedHeroBanner(
                     enabled = hasHistory,
                     shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = WrappedGreenPillBg,
-                        contentColor = WrappedGreenPillText,
-                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     ),
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
@@ -1245,7 +1236,7 @@ private fun WrappedRankedGroupPillRow(
 
             Surface(
                 shape = CircleShape,
-                color = WrappedGreenPillBg.copy(alpha = 0.16f)
+                color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Text(
                     text = formatWrappedDuration(item.totalDurationMs),
@@ -1253,7 +1244,7 @@ private fun WrappedRankedGroupPillRow(
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp
                     ),
-                    color = WrappedGreenPillBg,
+                    color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
                     modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                 )
@@ -1265,7 +1256,7 @@ private fun WrappedRankedGroupPillRow(
                 .fillMaxWidth()
                 .padding(start = 68.dp)
                 .height(0.5.dp)
-                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.14f))
+                .background(MaterialTheme.colorScheme.outlineVariant)
         )
     }
 }
@@ -1273,9 +1264,9 @@ private fun WrappedRankedGroupPillRow(
 @Composable
 private fun WrappedEmptyHistoryCard(modifier: Modifier = Modifier) {
     Surface(
-        shape = RoundedCornerShape(32.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.65f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
@@ -1289,13 +1280,13 @@ private fun WrappedEmptyHistoryCard(modifier: Modifier = Modifier) {
                 modifier = Modifier
                     .size(64.dp)
                     .clip(CircleShape)
-                    .background(WrappedGreenPillBg.copy(alpha = 0.16f)),
+                    .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Headphones,
                     contentDescription = null,
-                    tint = WrappedGreenPillBg,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp)
                 )
             }

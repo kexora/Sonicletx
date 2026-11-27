@@ -127,7 +127,7 @@ fun AppearanceSettingsSubPage(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.06f))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -211,7 +211,7 @@ fun AppearanceSettingsSubPage(
                             .background(Color(colorValue))
                             .border(
                                 width = if (isSelected) 2.5.dp else 1.dp,
-                                color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.White.copy(alpha = 0.14f),
+                                color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant,
                                 shape = CircleShape
                             )
                             .clickable { onSelectAccentColor(colorValue) },
@@ -236,7 +236,7 @@ fun AppearanceSettingsSubPage(
                             showColorDialog = true
                         },
                         shape = CircleShape,
-                        color = Color.White.copy(alpha = 0.06f),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
                         modifier = Modifier
                             .size(40.dp)
@@ -299,9 +299,9 @@ fun AppearanceSettingsSubPage(
                         }
                     },
                     shape = CircleShape,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.07f),
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                    border = if (isSelected) null else BorderStroke(0.6.dp, Color.White.copy(alpha = 0.10f)),
+                    border = if (isSelected) null else BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.testTag("bg_mode_${mode.lowercase()}")
                 ) {
                     Text(
@@ -378,7 +378,7 @@ fun AppearanceSettingsSubPage(
                                     color = Color(colorVal),
                                     border = BorderStroke(
                                         width = if (isSelected) 2.dp else 1.dp,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.16f)
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
                                     ),
                                     modifier = Modifier.height(38.dp)
                                 ) {
@@ -412,7 +412,7 @@ fun AppearanceSettingsSubPage(
                                         showColorDialog = true
                                     },
                                     shape = CircleShape,
-                                    color = Color.White.copy(alpha = 0.06f),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
                                     modifier = Modifier.height(38.dp)
                                 ) {
@@ -852,7 +852,7 @@ private fun CompactSliderControl(
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.primary,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = Color.White.copy(alpha = 0.12f)
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
             )
         )
     }

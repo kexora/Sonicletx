@@ -177,11 +177,7 @@ fun GlobalSearchOverlay(
     }
 
     val isDarkSurface = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val frostedScrimColor = if (isDarkSurface) {
-        Color(0xFF0A0F0D).copy(alpha = 0.94f)
-    } else {
-        MaterialTheme.colorScheme.background.copy(alpha = 0.96f)
-    }
+    val frostedScrimColor = MaterialTheme.colorScheme.background.copy(alpha = 0.96f)
 
     Box(
         modifier = modifier

@@ -79,9 +79,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -102,7 +104,6 @@ import com.kexora.soniclet.player.SleepTimerOption
 import com.kexora.soniclet.settings.SettingsSubPage
 import com.kexora.soniclet.ui.components.common.MadeInIndiaFooter
 import com.kexora.soniclet.ui.components.common.SonicletLogoBadge
-import com.kexora.soniclet.ui.components.player.SleepTimerDialog
 import com.kexora.soniclet.utils.fuzzyMatch
 
 @Composable
@@ -134,6 +135,7 @@ fun AppSidebarDrawer(
     isVolumeEdgeSwipeEnabled: Boolean = false,
     onSetSleepTimer: (SleepTimerOption) -> Unit = {},
     onSetCustomSleepTimer: (Int) -> Unit = {},
+    onOpenSleepTimer: () -> Unit = {},
     onOpenExcludedItems: (() -> Unit)? = null,
     onCreatePlaylist: (() -> Unit)? = null,
     onNavigateTab: (NavigationTab) -> Unit = {},
@@ -144,7 +146,6 @@ fun AppSidebarDrawer(
     var searchQuery by remember { mutableStateOf("") }
     var isSearchExpanded by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
-    var showSleepTimerDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(isSearchExpanded) {
         if (isSearchExpanded) {
@@ -163,47 +164,35 @@ fun AppSidebarDrawer(
         label = "drawer_refresh_rot"
     )
 
-    if (showSleepTimerDialog) {
-        SleepTimerDialog(
-            currentOption = sleepTimerOption,
-            remainingMs = sleepTimerRemainingMs,
-            finishTrackBeforeSleep = false,
-            onSelectOption = { option ->
-                if (option == SleepTimerOption.CUSTOM) {
-                    onSetCustomSleepTimer(20)
-                } else {
-                    onSetSleepTimer(option)
-                }
-                showSleepTimerDialog = false
-            },
-            onSetCustomTime = { minutes ->
-                onSetCustomSleepTimer(minutes)
-                showSleepTimerDialog = false
-            },
-            onToggleFinishTrackBeforeSleep = {},
-            onDismiss = { showSleepTimerDialog = false }
-        )
-    }
-
     val scrollState = rememberScrollState()
+    val drawerSurface = MaterialTheme.colorScheme.surface
+    val drawerBorderColor = MaterialTheme.colorScheme.outlineVariant
 
+    // Flush edge-anchored side sheet: 0dp radius on screen-attached edge, 20dp radius ONLY on inner exposed edge
     Surface(
         modifier = Modifier
             .fillMaxHeight()
-            .fillMaxWidth(0.82f)
-            .widthIn(max = 316.dp)
+            .fillMaxWidth(0.84f)
+            .widthIn(max = 312.dp)
             .testTag("app_sidebar_drawer"),
-        color = Color(0xFF0A0F0D),
-        contentColor = Color.White,
-        shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp, topEnd = 0.dp, bottomEnd = 0.dp),
-        border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.08f)),
+        color = drawerSurface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp, topEnd = 0.dp, bottomEnd = 0.dp),
         tonalElevation = 0.dp,
-        shadowElevation = 16.dp
+        shadowElevation = 18.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0A0F0D))
+                .background(drawerSurface)
+                .drawBehind {
+                    drawLine(
+                        color = drawerBorderColor,
+                        start = Offset(0f, 0f),
+                        end = Offset(0f, size.height),
+                        strokeWidth = 0.6.dp.toPx()
+                    )
+                }
                 .windowInsetsPadding(WindowInsets.statusBars)
         ) {
             // ==========================================
@@ -436,7 +425,7 @@ fun AppSidebarDrawer(
                         tag = "drawer_quick_timer",
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            showSleepTimerDialog = true
+                            onOpenSleepTimer()
                         }
                     )
 
@@ -869,10 +858,10 @@ private fun QuickActionPill(
             Surface(
                 onClick = onClick,
                 shape = CircleShape,
-                color = if (isActive) tint.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f),
+                color = if (isActive) tint.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceContainerHigh,
                 border = BorderStroke(
-                    width = 0.8.dp,
-                    color = if (isActive) tint.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.09f)
+                    width = 0.7.dp,
+                    color = if (isActive) tint.copy(alpha = 0.50f) else MaterialTheme.colorScheme.outlineVariant
                 ),
                 modifier = Modifier
                     .size(44.dp)
@@ -882,7 +871,7 @@ private fun QuickActionPill(
                     Icon(
                         imageVector = icon,
                         contentDescription = label,
-                        tint = if (isActive) tint else Color.White.copy(alpha = 0.80f),
+                        tint = if (isActive) tint else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                         modifier = Modifier
                             .size(20.dp)
                             .then(if (iconRotation != 0f) Modifier.rotate(iconRotation) else Modifier)
@@ -907,7 +896,7 @@ private fun QuickActionPill(
                 fontSize = 10.sp,
                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium
             ),
-            color = if (isActive) tint else Color.White.copy(alpha = 0.68f),
+            color = if (isActive) tint else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1
         )
     }
@@ -972,7 +961,7 @@ private fun PillDrawerItemRow(
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                     fontSize = 14.sp
                 ),
-                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.94f),
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -983,7 +972,7 @@ private fun PillDrawerItemRow(
                         fontSize = 11.sp,
                         lineHeight = 14.sp
                     ),
-                    color = Color.White.copy(alpha = 0.56f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

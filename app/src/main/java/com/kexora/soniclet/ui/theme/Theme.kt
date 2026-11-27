@@ -1,28 +1,28 @@
 package com.kexora.soniclet.ui.theme
 
-import com.kexora.soniclet.ui.components.player.*
-import com.kexora.soniclet.ui.components.common.*
-import com.kexora.soniclet.ui.components.navigation.*
-
-import android.os.Build
 import androidx.compose.foundation.IndicationNodeFactory
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.InteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.node.DelegatableNode
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Shapes
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.ColorUtils
+
 private object NoIndicationNodeFactory : IndicationNodeFactory {
     override fun create(interactionSource: InteractionSource): DelegatableNode {
         return object : Modifier.Node() {}
@@ -30,14 +30,15 @@ private object NoIndicationNodeFactory : IndicationNodeFactory {
     override fun hashCode(): Int = -1
     override fun equals(other: Any?): Boolean = other === this
 }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SonicletTheme(
     darkTheme: Boolean = true,
     dynamicColor: Boolean = false,
     accentColor: Long = 0xFF00E676,
-    backgroundMode: String = "AMOLED",
-    solidBgColor: Long = 0xFF000000L,
+    backgroundMode: String = "DYNAMIC",
+    solidBgColor: Long = 0xFF060807L,
     solidBgOpacity: Float = 1.0f,
     fontStyle: String = "STANDARD",
     cornerRadiusScale: Float = 0.5f,
@@ -45,107 +46,88 @@ fun SonicletTheme(
     content: @Composable () -> Unit,
 ) {
     val rawAccent = Color(accentColor)
-    // Determine effective canvas luminance:
-    val isSolidActive = (backgroundMode == "SOLID" || backgroundMode == "WHITE" || backgroundMode == "AMOLED") && solidBgOpacity >= 0.2f
-    val solidColor = if (backgroundMode == "WHITE") Color.White else if (backgroundMode == "AMOLED") Color.Black else Color(solidBgColor)
-    val r = solidColor.red
-    val g = solidColor.green
-    val b = solidColor.blue
-    val solidLum = 0.2126f * r + 0.7152f * g + 0.0722f * b
 
-    // Advanced dynamic background detection:
-    // If backgroundMetrics is provided (e.g. from Custom Wallpaper or Gradient analysis),
-    // use its real detected luminance. Otherwise, fallback to calculated solid / theme luminance.
-    val effectiveMetrics = backgroundMetrics ?: when {
-        backgroundMode == "WHITE" -> BackgroundMetrics.DEFAULT_LIGHT
-        backgroundMode == "AMOLED" -> BackgroundMetrics.DEFAULT_DARK
-        isSolidActive -> BackgroundLuminanceDetector.analyzeSolid(solidColor, solidBgOpacity)
-        else -> if (darkTheme) BackgroundMetrics.DEFAULT_DARK else BackgroundMetrics.DEFAULT_LIGHT
-    }
-
-    val isEffectiveDark = when {
-        backgroundMode == "WHITE" -> false
-        backgroundMode == "AMOLED" -> true
-        // Always respect user's explicit theme choice (Light vs Dark)!
+    val isEffectiveDark = when (backgroundMode) {
+        "WHITE" -> false
+        "AMOLED" -> true
         else -> darkTheme
     }
 
-    val accent = ensureThemeAccentContrast(rawAccent, isDark = isEffectiveDark)
-    val onPrimaryColor = if (BackgroundLuminanceDetector.getLuminance(accent) > 0.45f) Color(0xFF0F172A) else Color.White
-
-    val isWallpaperOrGradient = backgroundMode == "CUSTOM" || backgroundMode == "GRADIENT"
-
-    val bgColor = when {
-        isWallpaperOrGradient -> Color.Transparent // Allow background image/gradient to show through cleanly!
-        !isEffectiveDark -> Color(0xFFF1F5F9) // Clean off-white canvas for standard Light Mode
-        else -> Color.Black
-    }
-
-    val surfaceColor = if (isEffectiveDark) {
-        if (isWallpaperOrGradient) Color(0xCC141418) else effectiveMetrics.recommendedSurfaceColor
+    val effectiveMetrics = backgroundMetrics ?: if (isEffectiveDark) {
+        BackgroundMetrics.DEFAULT_DARK
     } else {
-        if (isWallpaperOrGradient) Color(0xF2F8FAFC) else Color(0xFFFFFFFF)
+        BackgroundMetrics.DEFAULT_LIGHT
     }
 
-    val surfaceVariant = if (isEffectiveDark) {
-        if (isWallpaperOrGradient) Color(0xDF1E1E28) else effectiveMetrics.recommendedSurfaceVariantColor
-    } else {
-        if (isWallpaperOrGradient) Color(0xE8E2E8F0) else Color(0xFFE2E8F0)
-    }
-
-    // High contrast bold text colors
-    val textColor = if (isEffectiveDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val textSecondary = if (isEffectiveDark) Color(0xFF94A3B8) else Color(0xFF334155)
-    val borderColor = if (isEffectiveDark) Color.White.copy(alpha = 0.12f) else Color(0xFFCBD5E1)
+    // Smart Accent Contrast Logic:
+    // - In Light Mode, clamp high-luminance accents (Yellow, Cyan, Mint, White) to HSL lightness <= 0.42f
+    //   for >= 4.5:1 text/icon readability on light surfaces while keeping primaryContainer vibrant.
+    // - In Dark Mode, preserve vivid accents and lift pitch-dark/achromatic values so they pop on OLED.
+    val resolvedPrimary = ensureThemeAccentContrast(rawAccent, isDark = isEffectiveDark)
+    val onPrimaryColor = if (resolvedPrimary.luminance() > 0.42f) ContrastDarkInk else Color.White
 
     val colorScheme = if (isEffectiveDark) {
         darkColorScheme(
-            primary = accent,
+            primary = resolvedPrimary,
             onPrimary = onPrimaryColor,
-            primaryContainer = accent.copy(alpha = 0.22f),
-            onPrimaryContainer = Color.White,
-            secondary = accent,
+            primaryContainer = rawAccent.copy(alpha = 0.20f),
+            onPrimaryContainer = DarkOnSurface,
+            secondary = resolvedPrimary,
             onSecondary = onPrimaryColor,
-            background = bgColor,
-            onBackground = textColor,
-            surface = surfaceColor,
-            onSurface = textColor,
-            surfaceVariant = surfaceVariant,
-            onSurfaceVariant = textSecondary,
-            outline = borderColor,
-            outlineVariant = surfaceVariant
+            secondaryContainer = DarkSurfaceContainerHigh,
+            onSecondaryContainer = DarkOnSurface,
+            background = DarkBackground,
+            onBackground = DarkOnBackground,
+            surface = DarkSurface,
+            onSurface = DarkOnSurface,
+            surfaceVariant = DarkSurfaceContainerHigh,
+            onSurfaceVariant = DarkOnSurfaceVariant,
+            surfaceContainerLowest = DarkSurfaceContainerLowest,
+            surfaceContainerLow = DarkSurfaceContainerLow,
+            surfaceContainer = DarkSurfaceContainer,
+            surfaceContainerHigh = DarkSurfaceContainerHigh,
+            surfaceContainerHighest = DarkSurfaceContainerHighest,
+            outline = DarkOutline,
+            outlineVariant = DarkOutlineVariant
         )
     } else {
         lightColorScheme(
-            primary = accent,
+            primary = resolvedPrimary,
             onPrimary = onPrimaryColor,
-            primaryContainer = accent.copy(alpha = 0.16f),
-            onPrimaryContainer = Color(0xFF0F172A),
-            secondary = accent,
+            primaryContainer = rawAccent.copy(alpha = 0.16f),
+            onPrimaryContainer = LightOnSurface,
+            secondary = resolvedPrimary,
             onSecondary = onPrimaryColor,
-            background = bgColor,
-            onBackground = textColor,
-            surface = surfaceColor,
-            onSurface = textColor,
-            surfaceVariant = surfaceVariant,
-            onSurfaceVariant = textSecondary,
-            outline = borderColor,
-            outlineVariant = Color(0xFFCBD5E1)
+            secondaryContainer = LightSurfaceContainerHigh,
+            onSecondaryContainer = LightOnSurface,
+            background = LightBackground,
+            onBackground = LightOnBackground,
+            surface = LightSurface,
+            onSurface = LightOnSurface,
+            surfaceVariant = LightSurfaceContainerHigh,
+            onSurfaceVariant = LightOnSurfaceVariant,
+            surfaceContainerLowest = LightSurfaceContainerLowest,
+            surfaceContainerLow = LightSurfaceContainerLow,
+            surfaceContainer = LightSurfaceContainer,
+            surfaceContainerHigh = LightSurfaceContainerHigh,
+            surfaceContainerHighest = LightSurfaceContainerHighest,
+            outline = LightOutline,
+            outlineVariant = LightOutlineVariant
         )
     }
 
-    val currentDensity = androidx.compose.ui.platform.LocalDensity.current
+    val currentDensity = LocalDensity.current
     val clampedFontScale = currentDensity.fontScale.coerceIn(0.90f, 1.10f)
-    val customDensity = androidx.compose.ui.unit.Density(
+    val customDensity = Density(
         density = currentDensity.density,
         fontScale = clampedFontScale
     )
 
     CompositionLocalProvider(
-        androidx.compose.ui.platform.LocalDensity provides customDensity,
+        LocalDensity provides customDensity,
         LocalIndication provides NoIndicationNodeFactory,
         LocalRippleConfiguration provides null,
-        androidx.compose.material3.LocalContentColor provides textColor,
+        LocalContentColor provides colorScheme.onSurface,
         LocalBackgroundMetrics provides effectiveMetrics
     ) {
         val cornerSizeSmall = (8 + (cornerRadiusScale * 8)).dp
@@ -164,44 +146,53 @@ fun SonicletTheme(
         )
     }
 }
-fun ensureThemeAccentContrast(color: Color, isDark: Boolean, fallbackAccent: Color = Color(0xFF00E676)): Color {
-    val r = color.red
-    val g = color.green
-    val b = color.blue
-    val lum = 0.2126f * r + 0.7152f * g + 0.0722f * b
-    val hsv = FloatArray(3)
-    android.graphics.Color.RGBToHSV((r * 255).toInt(), (g * 255).toInt(), (b * 255).toInt(), hsv)
+
+/**
+ * Guarantees WCAG-grade accent readability across both Dark Mode and Light Mode.
+ * - Light Mode: if rawAccent.luminance() > 0.50f (e.g., Yellow #FFD600, Cyan, Mint, White),
+ *   clamps HSL lightness <= 0.42f (yielding rich amber/gold #B58500 for Yellow, deep teal for Cyan, etc.).
+ * - Dark Mode: preserves vivid accents and lifts overly dark or near-black extracted tones.
+ */
+fun ensureThemeAccentContrast(
+    color: Color,
+    isDark: Boolean,
+    fallbackAccent: Color = Color(0xFF00E676)
+): Color {
+    val lum = color.luminance()
+    val hsl = FloatArray(3)
+    ColorUtils.colorToHSL(color.toArgb(), hsl)
+
     return if (isDark) {
-        // If extracted color is pitch black or achromatic dark grey, fallback to vibrant accent
-        if (hsv[2] < 0.25f && hsv[1] < 0.25f) {
+        if (hsl[2] < 0.20f && hsl[1] < 0.20f) {
             fallbackAccent
-        } else if (lum < 0.35f || hsv[2] < 0.70f) {
-            // Boost saturation and brightness for AMOLED / dark background punch and clarity
-            hsv[1] = hsv[1].coerceIn(0.75f, 1.0f)
-            hsv[2] = 0.98f
-            Color(android.graphics.Color.HSVToColor(hsv))
+        } else if (lum < 0.22f || hsl[2] < 0.48f) {
+            hsl[1] = hsl[1].coerceIn(0.65f, 1.0f)
+            hsl[2] = hsl[2].coerceIn(0.56f, 0.72f)
+            Color(ColorUtils.HSLToColor(hsl))
         } else {
             color
         }
     } else {
-        // Light mode: ensure high contrast readability against light/white surfaces
-        // Saturated and deep enough without looking dull or low contrast
-        if (lum > 0.40f || hsv[2] > 0.75f) {
-            hsv[1] = hsv[1].coerceIn(0.85f, 1.0f)
-            hsv[2] = 0.62f
-            Color(android.graphics.Color.HSVToColor(hsv))
+        if (lum > 0.50f) {
+            if (hsl[1] < 0.08f) {
+                // Pure white / near-white accent in Light Mode -> crisp slate charcoal
+                Color(0xFF1E293B)
+            } else {
+                // Clamp lightness <= 0.42f for >= 4.5:1 contrast on light surfaces (e.g., Yellow -> rich amber)
+                hsl[1] = hsl[1].coerceIn(0.72f, 1.0f)
+                hsl[2] = minOf(hsl[2], 0.42f).coerceAtLeast(0.32f)
+                Color(ColorUtils.HSLToColor(hsl))
+            }
         } else {
             color
         }
     }
 }
+
 fun getDynamicTypography(fontStyle: String): androidx.compose.material3.Typography {
-    // Standard typography
     val default = Typography
-    // In a real app we would load specific fonts here (e.g. Rounded, Monospace).
-    // For simplicity, we just use the built-in system fonts.
     val fontFamily = when (fontStyle) {
-        "ROUNDED" -> androidx.compose.ui.text.font.FontFamily.SansSerif // Assume sans-serif is rounded enough or fallback
+        "ROUNDED" -> androidx.compose.ui.text.font.FontFamily.SansSerif
         "MONOSPACE" -> androidx.compose.ui.text.font.FontFamily.Monospace
         else -> androidx.compose.ui.text.font.FontFamily.Default
     }

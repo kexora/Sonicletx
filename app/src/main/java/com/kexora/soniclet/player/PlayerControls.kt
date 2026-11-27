@@ -691,7 +691,7 @@ fun DhunLandscapeBottomShortcuts(
                             .offset(x = 2.dp, y = (-2).dp)
                             .size(6.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF00E676))
+                            .background(MaterialTheme.colorScheme.primary)
                     )
                 }
             }
@@ -719,7 +719,7 @@ fun DhunLandscapeBottomShortcuts(
                             .offset(x = 2.dp, y = (-2).dp)
                             .size(6.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF00E676))
+                            .background(MaterialTheme.colorScheme.primary)
                     )
                 }
             }

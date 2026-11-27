@@ -537,7 +537,10 @@ fun PlayerQueueLyricsSheet(
     onDismissPlayer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val sheetSurfaceColor = Color(0xFF0D1310).copy(alpha = 0.98f)
+    val sheetSurfaceColor = MaterialTheme.colorScheme.surface
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val outlineVariant = MaterialTheme.colorScheme.outlineVariant
     var sheetDragOffsetY by remember { mutableFloatStateOf(0f) }
     val animatedSheetOffsetY by animateFloatAsState(
         targetValue = sheetDragOffsetY,
@@ -606,8 +609,9 @@ fun PlayerQueueLyricsSheet(
                         .testTag("partial_queue_lyrics_sheet"),
                     shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                     color = sheetSurfaceColor,
+                    contentColor = onSurface,
                     tonalElevation = 0.dp,
-                    border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.10f))
+                    border = BorderStroke(0.8.dp, outlineVariant)
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {
                         // Drag-down header zone with pill handle + segmented switcher
@@ -641,7 +645,7 @@ fun PlayerQueueLyricsSheet(
                                     .width(36.dp)
                                     .height(4.dp)
                                     .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.25f))
+                                    .background(onSurfaceVariant.copy(alpha = 0.30f))
                             )
 
                             Spacer(modifier = Modifier.height(10.dp))
@@ -663,7 +667,7 @@ fun PlayerQueueLyricsSheet(
                                     Icon(
                                         imageVector = Icons.Rounded.KeyboardArrowDown,
                                         contentDescription = "Collapse Sheet",
-                                        tint = Color.White,
+                                        tint = onSurface,
                                         modifier = Modifier.size(26.dp)
                                     )
                                 }
@@ -671,8 +675,8 @@ fun PlayerQueueLyricsSheet(
                                 // Centered CircleShape Segmented Pill Switcher (UP NEXT | LYRICS)
                                 Surface(
                                     shape = CircleShape,
-                                    color = Color.White.copy(alpha = 0.08f),
-                                    border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.12f))
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    border = BorderStroke(0.6.dp, outlineVariant)
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(3.dp),
@@ -686,7 +690,7 @@ fun PlayerQueueLyricsSheet(
                                                 modifier = Modifier
                                                     .clip(CircleShape)
                                                     .background(
-                                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                                                        if (isSelected) MaterialTheme.colorScheme.primary
                                                         else Color.Transparent
                                                     )
                                                     .clickable { onSelectTab(index) }
@@ -700,7 +704,7 @@ fun PlayerQueueLyricsSheet(
                                                         fontSize = 11.5.sp,
                                                         letterSpacing = 0.7.sp
                                                     ),
-                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.65f)
+                                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else onSurfaceVariant
                                                 )
                                             }
                                         }
@@ -721,7 +725,7 @@ fun PlayerQueueLyricsSheet(
                                             Icons.Rounded.Refresh
                                         },
                                         contentDescription = if (selectedTab == 0) "Shuffle Queue" else "Reload Lyrics",
-                                        tint = Color.White.copy(alpha = 0.78f),
+                                        tint = onSurfaceVariant,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }

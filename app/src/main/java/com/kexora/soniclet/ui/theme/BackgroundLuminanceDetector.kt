@@ -44,39 +44,39 @@ data class BackgroundMetrics(
 
     companion object {
         val DEFAULT_DARK = BackgroundMetrics(
-            overallLuminance = 0.05f,
-            topLuminance = 0.05f,
-            bottomLuminance = 0.05f,
+            overallLuminance = 0.04f,
+            topLuminance = 0.04f,
+            bottomLuminance = 0.04f,
             isDark = true,
             isTopDark = true,
             isBottomDark = true,
             hasHighVariance = false,
-            dominantColor = Color.Black,
-            recommendedTextColor = Color(0xFFF9FAFB),
-            recommendedTextSecondaryColor = Color(0xFF94A3B8),
+            dominantColor = DarkBackground,
+            recommendedTextColor = DarkOnSurface,
+            recommendedTextSecondaryColor = DarkOnSurfaceVariant,
             recommendedTextShadow = null,
             recommendedSurfaceScrimAlpha = 0f,
-            recommendedSurfaceColor = Color(0xFF141416),
-            recommendedSurfaceVariantColor = Color(0xFF202026),
-            recommendedBorderColor = Color.White.copy(alpha = 0.08f)
+            recommendedSurfaceColor = DarkSurface,
+            recommendedSurfaceVariantColor = DarkSurfaceContainerHigh,
+            recommendedBorderColor = DarkOutlineVariant
         )
 
         val DEFAULT_LIGHT = BackgroundMetrics(
-            overallLuminance = 0.95f,
-            topLuminance = 0.95f,
-            bottomLuminance = 0.95f,
+            overallLuminance = 0.94f,
+            topLuminance = 0.94f,
+            bottomLuminance = 0.94f,
             isDark = false,
             isTopDark = false,
             isBottomDark = false,
             hasHighVariance = false,
-            dominantColor = Color.White,
-            recommendedTextColor = Color(0xFF0F172A),
-            recommendedTextSecondaryColor = Color(0xFF334155),
+            dominantColor = LightBackground,
+            recommendedTextColor = LightOnSurface,
+            recommendedTextSecondaryColor = LightOnSurfaceVariant,
             recommendedTextShadow = null,
             recommendedSurfaceScrimAlpha = 0f,
-            recommendedSurfaceColor = Color(0xFFFFFFFF),
-            recommendedSurfaceVariantColor = Color(0xFFF1F5F9),
-            recommendedBorderColor = Color(0xFFCBD5E1)
+            recommendedSurfaceColor = LightSurface,
+            recommendedSurfaceVariantColor = LightSurfaceContainerHigh,
+            recommendedBorderColor = LightOutlineVariant
         )
     }
 }
@@ -125,19 +125,19 @@ object BackgroundLuminanceDetector {
         hasVariance: Boolean = false,
         isWallpaperOrGradient: Boolean = false
     ): BackgroundMetrics {
-        // Effective luminance decreases as dimFactor increases
+        // Effective luminance after compositing the dimming overlay
         val effectiveOverall = (rawOverallLum * (1f - dimFactor)).coerceIn(0f, 1f)
         val effectiveTop = (rawTopLum * (1f - dimFactor)).coerceIn(0f, 1f)
         val effectiveBottom = (rawBottomLum * (1f - dimFactor)).coerceIn(0f, 1f)
 
-        // Threshold for dark vs light: 0.48
-        val isDark = effectiveOverall < 0.48f
-        val isTopDark = effectiveTop < 0.48f
-        val isBottomDark = effectiveBottom < 0.48f
+        // Only switch to dark system icons when composited luminance clearly exceeds 0.58f
+        val isDark = effectiveOverall <= 0.58f
+        val isTopDark = effectiveTop <= 0.58f
+        val isBottomDark = effectiveBottom <= 0.58f
 
         // High contrast colors
-        val textColor = if (isDark) Color(0xFFF9FAFB) else Color(0xFF0F172A)
-        val textSecondaryColor = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
+        val textColor = if (isDark) DarkOnSurface else LightOnSurface
+        val textSecondaryColor = if (isDark) DarkOnSurfaceVariant else LightOnSurfaceVariant
 
         // Text shadow for wallpapers and complex backgrounds to prevent washed-out text on bright or varied areas
         val textShadow = if (isWallpaperOrGradient) {
@@ -166,17 +166,9 @@ object BackgroundLuminanceDetector {
         } else 0f
 
         // Recommended surface & container colors that guarantee extreme contrast
-        val surfaceColor = if (isDark) {
-            if (effectiveOverall < 0.04f) Color(0xFF141416) else Color(0xFF1E1E24)
-        } else {
-            if (effectiveOverall > 0.90f) Color(0xFFFFFFFF) else Color(0xFFF8FAFC)
-        }
-        val surfaceVariant = if (isDark) {
-            if (effectiveOverall < 0.04f) Color(0xFF202026) else Color(0xFF2C2C36)
-        } else {
-            if (effectiveOverall > 0.90f) Color(0xFFF1F5F9) else Color(0xFFE2E8F0)
-        }
-        val borderColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFCBD5E1)
+        val surfaceColor = if (isDark) DarkSurface else LightSurface
+        val surfaceVariant = if (isDark) DarkSurfaceContainerHigh else LightSurfaceContainerHigh
+        val borderColor = if (isDark) DarkOutlineVariant else LightOutlineVariant
 
         return BackgroundMetrics(
             overallLuminance = effectiveOverall,

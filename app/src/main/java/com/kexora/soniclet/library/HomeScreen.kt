@@ -271,9 +271,7 @@ fun HomeScreen(
 
     if (uiState.isLoading && uiState.songList.isEmpty()) {
         HomeSkeletonLoading(
-            modifier = modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+            modifier = modifier.fillMaxSize()
         )
         return
     }
@@ -282,9 +280,7 @@ fun HomeScreen(
         EmptyHomeLibraryState(
             searchQuery = uiState.searchQuery,
             onRescan = { viewModel.rescanStorage() },
-            modifier = modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+            modifier = modifier.fillMaxSize()
         )
         return
     }
@@ -298,7 +294,6 @@ fun HomeScreen(
         state = listState,
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .scrollFade(listState),
         contentPadding = PaddingValues(top = 6.dp, bottom = bottomPadding),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -777,25 +772,16 @@ private fun EditorialMixHeaderStrip(
     val leadSong = remember(songs) {
         songs.firstOrNull { it.albumArtUri != null } ?: songs.firstOrNull()
     }
-    val accentTint = mixConfig.gradientColors.getOrElse(1) { MaterialTheme.colorScheme.primary }
+    val accentTint = if (mixConfig.badgeText == "FOR YOU") {
+        MaterialTheme.colorScheme.primary
+    } else {
+        mixConfig.gradientColors.getOrElse(1) { MaterialTheme.colorScheme.primary }
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onOpenMixPlaylist)
-            .drawBehind {
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            accentTint.copy(alpha = 0.16f),
-                            accentTint.copy(alpha = 0.05f),
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.22f, size.height * 0.45f),
-                        radius = size.width * 0.78f
-                    )
-                )
-            }
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Row(
@@ -808,7 +794,7 @@ private fun EditorialMixHeaderStrip(
                     .weight(1f)
                     .padding(end = 14.dp)
             ) {
-                // Compact pill tag ("DEVOTIONAL • 8 SONGS" or "FOR YOU • 30 SONGS")
+                // Compact pill tag ("FOR YOU • 25 SONGS" or category mix) bound strictly to dynamic accent
                 Surface(
                     shape = CircleShape,
                     color = accentTint.copy(alpha = 0.16f)
@@ -832,7 +818,7 @@ private fun EditorialMixHeaderStrip(
                                 letterSpacing = 0.75.sp,
                                 platformStyle = PlatformTextStyle(includeFontPadding = true)
                             ),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.90f),
+                            color = accentTint,
                             maxLines = 1
                         )
                     }
@@ -902,10 +888,10 @@ private fun EditorialMixHeaderStrip(
                         .clip(RoundedCornerShape(16.dp))
                         .border(
                             width = 0.8.dp,
-                            color = Color.White.copy(alpha = 0.15f),
+                            color = MaterialTheme.colorScheme.outlineVariant,
                             shape = RoundedCornerShape(16.dp)
                         )
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 ) {
                     SubcomposeAsyncImage(
                         model = ImageRequest.Builder(context)

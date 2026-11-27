@@ -167,7 +167,7 @@ fun PermissionsSettingsSubPage() {
 
         PermissionItemRow(
             icon = Icons.Rounded.AudioFile,
-            iconTint = Color(0xFF00E676),
+            iconTint = MaterialTheme.colorScheme.primary,
             title = "Music & Audio Storage",
             subtitle = "Discover, index, and play your offline music library, metadata, and album art",
             isGranted = hasAudioPermission,
@@ -257,7 +257,7 @@ fun PermissionsSettingsSubPage() {
 
         PermissionItemRow(
             icon = Icons.Rounded.BatteryChargingFull,
-            iconTint = Color(0xFF00E676),
+            iconTint = MaterialTheme.colorScheme.primary,
             title = "Unrestricted Battery Backgrounding",
             subtitle = "Prevents aggressive battery savers from interrupting background playback",
             isGranted = false,
@@ -350,10 +350,10 @@ private fun PermissionItemRow(
 
         Surface(
             shape = CircleShape,
-            color = if (isGranted) Color(0xFF00E676).copy(alpha = 0.14f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
             border = BorderStroke(
                 0.8.dp,
-                if (isGranted) Color(0xFF00E676).copy(alpha = 0.4f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                if (isGranted) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
             )
         ) {
             Row(
@@ -364,7 +364,7 @@ private fun PermissionItemRow(
                     Icon(
                         Icons.Rounded.Check,
                         contentDescription = null,
-                        tint = Color(0xFF00E676),
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(13.dp)
                     )
                     Spacer(modifier = Modifier.width(3.dp))
@@ -375,7 +375,7 @@ private fun PermissionItemRow(
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp
                     ),
-                    color = if (isGranted) Color(0xFF00E676) else MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }

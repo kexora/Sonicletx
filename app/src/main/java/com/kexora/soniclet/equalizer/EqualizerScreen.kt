@@ -187,7 +187,7 @@ fun EqualizerSettingsSubPage(
                                 .size(7.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    if (activeEffectsCount > 0) Color(0xFF00E676)
+                                    if (activeEffectsCount > 0) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                 )
                         )
@@ -225,7 +225,7 @@ fun EqualizerSettingsSubPage(
                     Toast.makeText(context, "Reset all audio effects to Flat", Toast.LENGTH_SHORT).show()
                 },
                 shape = CircleShape,
-                color = Color.White.copy(alpha = 0.08f)
+                color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
@@ -374,14 +374,14 @@ fun EqualizerSettingsSubPage(
                     color = when {
                         isSelected -> MaterialTheme.colorScheme.primary
                         isSignaturePreset -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
-                        else -> Color.White.copy(alpha = 0.07f)
+                        else -> MaterialTheme.colorScheme.surfaceContainerHigh
                     },
                     border = BorderStroke(
                         width = if (isSelected || isSignaturePreset) 1.dp else 0.6.dp,
                         color = when {
                             isSelected -> MaterialTheme.colorScheme.primary
                             isSignaturePreset -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.55f)
-                            else -> Color.White.copy(alpha = 0.10f)
+                            else -> MaterialTheme.colorScheme.outlineVariant
                         }
                     )
                 ) {
@@ -483,10 +483,10 @@ fun EqualizerSettingsSubPage(
                             )
                         },
                         shape = CircleShape,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.07f),
+                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f) else MaterialTheme.colorScheme.surfaceContainerHigh,
                         border = BorderStroke(
                             0.8.dp,
-                            if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.12f)
+                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
                         )
                     ) {
                         Row(
@@ -734,8 +734,8 @@ fun EqualizerSettingsSubPage(
                                 onSetBassVibrationMode(mode)
                             },
                             shape = CircleShape,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.07f),
-                            border = if (isSelected) null else BorderStroke(0.6.dp, Color.White.copy(alpha = 0.10f))
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = if (isSelected) null else BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Text(
                                 text = mode,
@@ -848,8 +848,8 @@ fun EqualizerSettingsSubPage(
                                 selectedDolbyProfile = profile
                             },
                             shape = CircleShape,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.07f),
-                            border = if (isSelected) null else BorderStroke(0.6.dp, Color.White.copy(alpha = 0.10f))
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = if (isSelected) null else BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Text(
                                 text = profile,
@@ -946,8 +946,8 @@ fun EqualizerSettingsSubPage(
                         }
                     },
                     shape = CircleShape,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.07f),
-                    border = if (isSelected) null else BorderStroke(0.6.dp, Color.White.copy(alpha = 0.10f))
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = if (isSelected) null else BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Text(
                         text = presetName,
@@ -988,7 +988,7 @@ fun EqualizerSettingsSubPage(
                 Icon(
                     imageVector = Icons.Rounded.Verified,
                     contentDescription = null,
-                    tint = if (isLosslessEnabled) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (isLosslessEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(22.dp)
                 )
                 Column {
@@ -1004,7 +1004,7 @@ fun EqualizerSettingsSubPage(
                     Text(
                         text = if (isLosslessEnabled) "32-Bit Float Master • Zero dithering or compression" else "Standard playback format",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
-                        color = if (isLosslessEnabled) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (isLosslessEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -1136,10 +1136,10 @@ private fun QuickTogglePill(
     Surface(
         onClick = { onToggle(!isActive) },
         shape = CircleShape,
-        color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.06f),
+        color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceContainerHigh,
         border = BorderStroke(
             0.8.dp,
-            if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.10f)
+            if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant
         ),
         modifier = modifier
     ) {
@@ -1267,7 +1267,7 @@ private fun SmartSliderRow(
                 colors = SliderDefaults.colors(
                     thumbColor = MaterialTheme.colorScheme.primary,
                     activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = Color.White.copy(alpha = 0.12f)
+                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1286,6 +1286,8 @@ fun EqCurveVisualizer(levels: List<Int>, modifier: Modifier = Modifier) {
     if (levels.isEmpty()) return
 
     val primaryColor = MaterialTheme.colorScheme.primary
+    val baselineColor = MaterialTheme.colorScheme.outlineVariant
+    val nodeHaloColor = MaterialTheme.colorScheme.surface
 
     Canvas(modifier = modifier) {
         val width = size.width
@@ -1296,7 +1298,7 @@ fun EqCurveVisualizer(levels: List<Int>, modifier: Modifier = Modifier) {
 
         val zeroY = height / 2f
         drawLine(
-            color = Color.White.copy(alpha = 0.14f),
+            color = baselineColor,
             start = Offset(0f, zeroY),
             end = Offset(width, zeroY),
             strokeWidth = 2f,
@@ -1342,7 +1344,7 @@ fun EqCurveVisualizer(levels: List<Int>, modifier: Modifier = Modifier) {
 
         points.forEach { pt ->
             drawCircle(
-                color = Color.White,
+                color = nodeHaloColor,
                 radius = 6f,
                 center = pt
             )

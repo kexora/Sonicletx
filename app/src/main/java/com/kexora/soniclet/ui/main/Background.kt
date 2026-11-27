@@ -4,11 +4,14 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -17,14 +20,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.kexora.soniclet.player.MusicUiState
 import com.kexora.soniclet.ui.theme.BackgroundLuminanceDetector
 import com.kexora.soniclet.ui.theme.BackgroundMetrics
 import com.kexora.soniclet.ui.theme.BackgroundPresets
-import com.kexora.soniclet.player.MusicUiState
 import com.kexora.soniclet.utils.CompatBlurTransformation
 
 /**
- * Real-time background color and luminance analysis state producer.
+ * Real-time background luminance analysis state producer.
+ *
+ * Strictly derives dark/light icon contrast from the ACTUAL resolved background canvas,
+ * NEVER from the user's accent color (preventing black status bar icons on Dark Mode with
+ * bright accents like Yellow or Cyan).
  */
 @Composable
 fun rememberAppBackgroundMetrics(
@@ -37,42 +44,20 @@ fun rememberAppBackgroundMetrics(
         uiState.backgroundMode,
         uiState.customBackgroundUri,
         uiState.bgImageDim,
-        uiState.solidBgColor,
-        uiState.solidBgOpacity,
-        uiState.gradientPresetIndex,
-        uiState.gradientIntensity,
-        uiState.isKariModeEnabled,
-        uiState.kariDominantColor,
         isDarkTheme
     ) {
         this.value = when {
-            uiState.isKariModeEnabled && uiState.backgroundMode != "CUSTOM" -> {
-                val topColor = Color(uiState.kariDominantColor ?: uiState.accentColor)
-                val midColor = Color(uiState.kariVibrantColor ?: 0xFF0B251CL)
-                val botColor = Color(uiState.kariDarkMutedColor ?: 0xFF070B09L)
-                BackgroundLuminanceDetector.analyzeGradient(listOf(topColor, midColor, botColor), 1f)
-            }
-            uiState.backgroundMode == "CUSTOM" && uiState.customBackgroundUri != null -> {
+            uiState.backgroundMode == "CUSTOM" && !uiState.customBackgroundUri.isNullOrBlank() -> {
                 BackgroundLuminanceDetector.analyzeWallpaperUri(
-                    context,
-                    uiState.customBackgroundUri.toString(),
-                    uiState.bgImageDim
+                    context = context,
+                    uriString = uiState.customBackgroundUri,
+                    dimFactor = uiState.bgImageDim
                 )
-            }
-            uiState.backgroundMode == "GRADIENT" -> {
-                val colors = BackgroundPresets.getGradientColors(
-                    presetIndex = uiState.gradientPresetIndex,
-                    dominantColor = uiState.kariDominantColor,
-                    vibrantColor = uiState.kariVibrantColor
-                )
-                BackgroundLuminanceDetector.analyzeGradient(colors, uiState.gradientIntensity)
-            }
-            uiState.backgroundMode == "SOLID" -> {
-                BackgroundLuminanceDetector.analyzeSolid(Color(uiState.solidBgColor), uiState.solidBgOpacity)
             }
             uiState.backgroundMode == "WHITE" -> BackgroundMetrics.DEFAULT_LIGHT
             uiState.backgroundMode == "AMOLED" -> BackgroundMetrics.DEFAULT_DARK
             else -> {
+                // Solid, Gradient, Dynamic Glow, and Default all render over the active Dark/Light canvas
                 if (isDarkTheme) BackgroundMetrics.DEFAULT_DARK else BackgroundMetrics.DEFAULT_LIGHT
             }
         }
@@ -80,12 +65,10 @@ fun rememberAppBackgroundMetrics(
 }
 
 /**
- * Renders the active background layer:
- * - Kari Mode dynamic cover-art gradient with blur and legibility scrim
- * - CUSTOM wallpaper image with CompatBlurTransformation / RenderEffect blur and dim overlay
- * - GRADIENT preset background
- * - SOLID color overlay
- * - Intelligent contrast protector scrim (`recommendedSurfaceScrimAlpha`)
+ * Unified, Seamless Edge-to-Edge Root Background Canvas.
+ *
+ * Renders a single continuous layer from the top of the status bar to the bottom of the
+ * navigation bar with zero seams, zero banding, and full Light + Dark Mode harmony.
  */
 @Composable
 fun AppBackground(
@@ -93,49 +76,56 @@ fun AppBackground(
     isDarkTheme: Boolean,
     currentBgMetrics: BackgroundMetrics
 ) {
+    val baseBackground = MaterialTheme.colorScheme.background
+    val primaryColor = MaterialTheme.colorScheme.primary
+
+    // Always paint a 100% opaque base canvas matching the active Dark/Light theme
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(baseBackground)
+    )
+
     if (uiState.isKariModeEnabled && uiState.backgroundMode != "CUSTOM") {
-        // Dynamic Glow (Kari Mode) Cover Art Gradient Background
-        val hasTrackPalette = uiState.currentSong != null && uiState.kariDominantColor != null
-        val topColor = Color(uiState.kariDominantColor ?: uiState.accentColor)
-        val midColor = Color(uiState.kariVibrantColor ?: 0xFF0B251CL)
-        val botColor = Color(uiState.kariDarkMutedColor ?: 0xFF070B09L)
-        val topAlpha = if (hasTrackPalette) (uiState.kariOpacity * 0.88f).coerceIn(0.15f, 1f) else (uiState.kariOpacity * 0.34f).coerceIn(0.10f, 0.45f)
-        val midAlpha = if (hasTrackPalette) (uiState.kariOpacity * 0.58f).coerceIn(0.10f, 0.9f) else (uiState.kariOpacity * 0.45f).coerceIn(0.12f, 0.55f)
+        // Silky multi-stop vertical + radial ambient glow over the theme's base canvas (zero banding!)
+        val glowSource = if (uiState.currentSong != null && uiState.kariDominantColor != null) {
+            Color(uiState.kariDominantColor)
+        } else {
+            primaryColor
+        }
+        val intensityScale = (uiState.kariOpacity / 0.60f).coerceIn(0.45f, 1.35f) *
+            if (isDarkTheme) 1.0f else 0.72f
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && uiState.kariBlur > 0f) {
-                        Modifier.blur(uiState.kariBlur.dp)
-                    } else {
-                        Modifier
-                    }
-                )
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            topColor.copy(alpha = topAlpha),
-                            midColor.copy(alpha = midAlpha),
-                            botColor.copy(alpha = uiState.kariOpacity.coerceIn(0.25f, 1f)),
-                            Color(0xFF070B09)
+                .drawBehind {
+                    // Soft radial crown glow behind top header & tabs
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            colorStops = arrayOf(
+                                0.00f to glowSource.copy(alpha = (0.14f * intensityScale).coerceIn(0f, 0.24f)),
+                                0.35f to glowSource.copy(alpha = (0.06f * intensityScale).coerceIn(0f, 0.14f)),
+                                0.72f to glowSource.copy(alpha = (0.015f * intensityScale).coerceIn(0f, 0.05f)),
+                                1.00f to Color.Transparent
+                            ),
+                            center = Offset(size.width * 0.5f, 0f),
+                            radius = size.width * 1.15f
                         )
                     )
-                )
-        )
-        // Legibility overlay for clean text & controls
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = ((1f - uiState.kariOpacity) * 0.5f).coerceIn(0f, 0.6f)),
-                            Color.Black.copy(alpha = 0.35f),
-                            Color.Black.copy(alpha = 0.78f)
+                    // Silky continuous vertical fade that melts invisibly into the base canvas
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.00f to glowSource.copy(alpha = (0.14f * intensityScale).coerceIn(0f, 0.22f)),
+                                0.18f to glowSource.copy(alpha = (0.07f * intensityScale).coerceIn(0f, 0.12f)),
+                                0.40f to glowSource.copy(alpha = (0.02f * intensityScale).coerceIn(0f, 0.05f)),
+                                0.62f to Color.Transparent,
+                                1.00f to Color.Transparent
+                            )
                         )
                     )
-                )
+                }
         )
     } else {
         when (uiState.backgroundMode) {
@@ -146,7 +136,7 @@ fun AppBackground(
                         model = ImageRequest.Builder(context)
                             .data(uiState.customBackgroundUri)
                             .crossfade(true)
-                            .crossfade(1000)
+                            .crossfade(600)
                             .apply {
                                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && uiState.bgImageBlur > 0f) {
                                     val blurRad = (uiState.bgImageBlur * 1.5f).toInt().coerceIn(3, 25)
@@ -172,13 +162,16 @@ fun AppBackground(
                             .fillMaxSize()
                             .background(Color.Black.copy(alpha = uiState.bgImageDim))
                     )
-                } else {
-                    val fallbackColor = if (isDarkTheme) Color(0xFF121218) else Color(0xFFF1F5F9)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(fallbackColor)
-                    )
+                    if (currentBgMetrics.recommendedSurfaceScrimAlpha > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    (if (currentBgMetrics.isDark) Color.Black else Color.White)
+                                        .copy(alpha = currentBgMetrics.recommendedSurfaceScrimAlpha * 0.55f)
+                                )
+                        )
+                    }
                 }
             }
             "GRADIENT" -> {
@@ -187,32 +180,31 @@ fun AppBackground(
                     dominantColor = uiState.kariDominantColor,
                     vibrantColor = uiState.kariVibrantColor
                 )
+                val leadColor = gradientColors.firstOrNull() ?: primaryColor
+                val midColor = gradientColors.getOrElse(1) { leadColor }
+                val scale = uiState.gradientIntensity.coerceIn(0.2f, 1.0f) *
+                    if (isDarkTheme) 1.0f else 0.70f
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .then(
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && uiState.gradientBlur > 0f) {
-                                Modifier.blur(uiState.gradientBlur.dp)
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .background(
-                            Brush.verticalGradient(
-                                colors = gradientColors.map { it.copy(alpha = uiState.gradientIntensity) }
+                        .drawBehind {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colorStops = arrayOf(
+                                        0.00f to leadColor.copy(alpha = (0.20f * scale).coerceIn(0f, 0.28f)),
+                                        0.20f to midColor.copy(alpha = (0.10f * scale).coerceIn(0f, 0.16f)),
+                                        0.44f to leadColor.copy(alpha = (0.03f * scale).coerceIn(0f, 0.06f)),
+                                        0.66f to Color.Transparent,
+                                        1.00f to Color.Transparent
+                                    )
+                                )
                             )
-                        )
+                        }
                 )
-                if (uiState.gradientIntensity < 1f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = (1f - uiState.gradientIntensity) * 0.8f))
-                    )
-                }
             }
             "SOLID" -> {
-                if (uiState.solidBgOpacity > 0f) {
+                if (isDarkTheme && uiState.solidBgOpacity > 0f) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -220,21 +212,7 @@ fun AppBackground(
                     )
                 }
             }
-            // "OFF" / "DEFAULT" - uses pure clean MaterialTheme background
+            // "OFF" / "DEFAULT" — pure clean semantic MaterialTheme.colorScheme.background
         }
-    }
-
-    // Intelligent contrast protector overlay if wallpaper/gradient is bright or high variance
-    if (currentBgMetrics.recommendedSurfaceScrimAlpha > 0f &&
-        (uiState.backgroundMode == "CUSTOM" || uiState.backgroundMode == "GRADIENT")
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    (if (currentBgMetrics.isDark) Color.Black else Color.White)
-                        .copy(alpha = currentBgMetrics.recommendedSurfaceScrimAlpha)
-                )
-        )
     }
 }

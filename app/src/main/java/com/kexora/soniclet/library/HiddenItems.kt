@@ -103,9 +103,7 @@ fun HiddenItems(
     val bottomPadding = LocalPlayerBottomPadding.current + 8.dp
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+        modifier = modifier.fillMaxSize()
     ) {
         // ALWAYS VISIBLE TOP PILL CONTROLS ROW (Never disappears when switching tabs or when a tab is empty)
         HiddenPillControlsRow(

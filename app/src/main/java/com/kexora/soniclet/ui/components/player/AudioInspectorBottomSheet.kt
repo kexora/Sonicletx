@@ -26,7 +26,6 @@ import com.kexora.soniclet.database.Song
 import com.kexora.soniclet.utils.AudioSpecs
 import com.kexora.soniclet.utils.SmartTitleCleaner
 
-private val InspectorSheetSurface = Color(0xFF0E1411).copy(alpha = 0.98f)
 
 /**
  * Ultra-Compact, Partial-Height Bitrate & Codec Inspector Sheet.
@@ -47,13 +46,16 @@ fun AudioInspectorBottomSheet(
     val cleanedArtist = remember(song.artist) {
         SmartTitleCleaner.cleanArtist(song.artist).ifBlank { "Unknown Artist" }
     }
-    val hairlineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.14f)
+    val sheetSurface = MaterialTheme.colorScheme.surface
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val hairlineColor = MaterialTheme.colorScheme.outlineVariant
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = InspectorSheetSurface,
-        contentColor = Color.White,
+        containerColor = sheetSurface,
+        contentColor = onSurface,
         scrimColor = Color.Black.copy(alpha = 0.65f),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         tonalElevation = 0.dp,
@@ -67,7 +69,7 @@ fun AudioInspectorBottomSheet(
                 .align(Alignment.CenterHorizontally)
                 .drawBehind {
                     drawLine(
-                        color = Color.White.copy(alpha = 0.10f),
+                        color = hairlineColor,
                         start = Offset(0f, 0f),
                         end = Offset(size.width, 0f),
                         strokeWidth = 0.8.dp.toPx()
@@ -90,7 +92,7 @@ fun AudioInspectorBottomSheet(
                         .width(36.dp)
                         .height(4.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.25f))
+                        .background(onSurfaceVariant.copy(alpha = 0.30f))
                 )
             }
 
@@ -106,7 +108,7 @@ fun AudioInspectorBottomSheet(
                             fontSize = 15.5.sp,
                             fontWeight = FontWeight.Bold
                         ),
-                        color = Color.White,
+                        color = onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -114,7 +116,7 @@ fun AudioInspectorBottomSheet(
                     Text(
                         text = cleanedArtist,
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                        color = Color.White.copy(alpha = 0.62f),
+                        color = onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -158,7 +160,7 @@ fun AudioInspectorBottomSheet(
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = "Close Inspector",
-                        tint = Color.White.copy(alpha = 0.72f),
+                        tint = onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -199,7 +201,7 @@ fun AudioInspectorBottomSheet(
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 1.1.sp
                         ),
-                        color = Color.White.copy(alpha = 0.55f)
+                        color = onSurfaceVariant
                     )
                     Text(
                         text = specs.bitrateFormatted,
@@ -221,7 +223,7 @@ fun AudioInspectorBottomSheet(
                         .height(4.dp)
                         .clip(CircleShape),
                     color = accentColor,
-                    trackColor = Color.White.copy(alpha = 0.12f)
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -308,7 +310,7 @@ private fun BitrateMarker(
             fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
             fontFeatureSettings = "tnum"
         ),
-        color = if (isActive) accentColor else Color.White.copy(alpha = 0.42f)
+        color = if (isActive) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
     )
 }
 
@@ -330,7 +332,7 @@ private fun CompactSpecRowPair(
             Text(
                 text = leftLabel,
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                color = Color.White.copy(alpha = 0.52f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(1.dp))
             Text(
@@ -340,7 +342,7 @@ private fun CompactSpecRowPair(
                     fontWeight = FontWeight.SemiBold,
                     fontFeatureSettings = "tnum"
                 ),
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -349,7 +351,7 @@ private fun CompactSpecRowPair(
             Text(
                 text = rightLabel,
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                color = Color.White.copy(alpha = 0.52f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(1.dp))
             Text(
@@ -359,7 +361,7 @@ private fun CompactSpecRowPair(
                     fontWeight = FontWeight.SemiBold,
                     fontFeatureSettings = "tnum"
                 ),
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

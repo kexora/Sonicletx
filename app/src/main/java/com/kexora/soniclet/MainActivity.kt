@@ -174,10 +174,48 @@ class MainActivity : ComponentActivity() {
 
             val currentBgMetrics by rememberAppBackgroundMetrics(uiState = uiState, isDarkTheme = isDarkTheme)
 
+            val isAudioGranted = isAudioPermissionGranted(context)
+            var showSplash by remember { mutableStateOf(true) }
+            var isPlayerExpanded by remember { mutableStateOf(false) }
+            var showExitDialog by remember { mutableStateOf(false) }
+            var showReplayTour by remember { mutableStateOf(false) }
+            var showMiniPlayerAudioFxSheet by remember { mutableStateOf(false) }
+            var showSleepTimerSheet by remember { mutableStateOf(false) }
+
+            val isOnboardingVisible = (uiState.isFirstLaunch && !isAudioGranted) || showReplayTour
+            val isNowPlayingVisible = uiState.currentTab == NavigationTab.NOW_PLAYING && uiState.currentSong != null
+            val isNowPlayingDarkBackdrop = isNowPlayingVisible && (isDarkTheme || uiState.currentSong?.albumArtUri != null)
+            val isDriveModeVisible = uiState.currentTab == NavigationTab.DRIVE_MODE
+
+            val useLightStatusBars: Boolean
+            val useLightNavBars: Boolean
+            when {
+                isOnboardingVisible || isNowPlayingDarkBackdrop || isDriveModeVisible -> {
+                    // Pure dark OLED screens always get crisp white system bar icons
+                    useLightStatusBars = false
+                    useLightNavBars = false
+                }
+                isNowPlayingVisible && !isDarkTheme && uiState.currentSong?.albumArtUri == null -> {
+                    // Light Mode Now Playing fallback when track has no cover art
+                    useLightStatusBars = true
+                    useLightNavBars = true
+                }
+                uiState.backgroundMode == "CUSTOM" && !uiState.customBackgroundUri.isNullOrBlank() -> {
+                    // Custom Wallpaper: switch to dark icons ONLY when post-dim luminance > 0.58f
+                    useLightStatusBars = currentBgMetrics.topLuminance > 0.58f
+                    useLightNavBars = currentBgMetrics.bottomLuminance > 0.58f
+                }
+                else -> {
+                    // Solid, Gradient, Dynamic Glow & Default strictly follow Dark vs Light Mode
+                    useLightStatusBars = !isDarkTheme
+                    useLightNavBars = !isDarkTheme
+                }
+            }
+
             val insetsController = remember(window) { WindowCompat.getInsetsController(window, window.decorView) }
             SideEffect {
-                insetsController.isAppearanceLightStatusBars = !currentBgMetrics.isTopDark
-                insetsController.isAppearanceLightNavigationBars = !currentBgMetrics.isBottomDark
+                insetsController.isAppearanceLightStatusBars = useLightStatusBars
+                insetsController.isAppearanceLightNavigationBars = useLightNavBars
             }
 
             val radioHost = remember(context) { RadioBackgroundHost.getInstance(context) }
@@ -203,12 +241,6 @@ class MainActivity : ComponentActivity() {
                 !showRadioMiniBanner &&
                 !(isOnRadioTab && isRadioConnectedAndPlaying)
             val hasBottomBar = showMiniPlayer || showRadioMiniBanner
-
-            var showSplash by remember { mutableStateOf(true) }
-            var isPlayerExpanded by remember { mutableStateOf(false) }
-            var showExitDialog by remember { mutableStateOf(false) }
-            var showReplayTour by remember { mutableStateOf(false) }
-            var showMiniPlayerAudioFxSheet by remember { mutableStateOf(false) }
 
             val configuration = LocalConfiguration.current
             val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -260,14 +292,13 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
-                        val isAudioGranted = isAudioPermissionGranted(context)
                         if (isAudioGranted && uiState.isFirstLaunch) {
                             LaunchedEffect(Unit) {
                                 viewModel.setFirstLaunch(false)
                             }
                         }
                         PermissionHandler(
-                            forceShowTour = (uiState.isFirstLaunch && !isAudioGranted) || showReplayTour,
+                            forceShowTour = isOnboardingVisible,
                             currentTheme = uiState.appTheme,
                             accentColor = uiState.accentColor,
                             onSelectTheme = { theme -> viewModel.setAppTheme(theme) },
@@ -371,13 +402,37 @@ class MainActivity : ComponentActivity() {
                                                         isVolumeEdgeSwipeEnabled = uiState.isVolumeEdgeSwipeEnabled,
                                                         onSetSleepTimer = { viewModel.setSleepTimer(it) },
                                                         onSetCustomSleepTimer = { viewModel.setCustomSleepTimer(it) },
-                                                        onOpenExcludedItems = { viewModel.selectTab(NavigationTab.HIDDEN_ITEMS) },
-                                                        onCreatePlaylist = { viewModel.setShowCreatePlaylistDialog(true) },
-                                                        onNavigateTab = { tab -> viewModel.selectTab(tab) },
+                                                        onOpenSleepTimer = {
+                                                            scope.launch {
+                                                                drawerState.close()
+                                                                showSleepTimerSheet = true
+                                                            }
+                                                        },
+                                                        onOpenExcludedItems = {
+                                                            scope.launch {
+                                                                drawerState.close()
+                                                                viewModel.selectTab(NavigationTab.HIDDEN_ITEMS)
+                                                            }
+                                                        },
+                                                        onCreatePlaylist = {
+                                                            scope.launch {
+                                                                drawerState.close()
+                                                                viewModel.setShowCreatePlaylistDialog(true)
+                                                            }
+                                                        },
+                                                        onNavigateTab = { tab ->
+                                                            scope.launch {
+                                                                drawerState.close()
+                                                                viewModel.selectTab(tab)
+                                                            }
+                                                        },
                                                         onOpenSettingsSubPage = { subPage ->
-                                                            viewModel.clearSubPageBackStack()
-                                                            viewModel.setSettingsSubPage(subPage)
-                                                            viewModel.selectTab(NavigationTab.SETTINGS)
+                                                            scope.launch {
+                                                                drawerState.close()
+                                                                viewModel.clearSubPageBackStack()
+                                                                viewModel.setSettingsSubPage(subPage)
+                                                                viewModel.selectTab(NavigationTab.SETTINGS)
+                                                            }
                                                         },
                                                         onCloseDrawer = { scope.launch { drawerState.close() } }
                                                     )
@@ -471,6 +526,8 @@ class MainActivity : ComponentActivity() {
                         onSplashFinished = { showSplash = false },
                         showMiniPlayerAudioFxSheet = showMiniPlayerAudioFxSheet,
                         onDismissMiniPlayerAudioFxSheet = { showMiniPlayerAudioFxSheet = false },
+                        showSleepTimerSheet = showSleepTimerSheet,
+                        onDismissSleepTimerSheet = { showSleepTimerSheet = false },
                         showExitDialog = showExitDialog,
                         onDismissExitDialog = { showExitDialog = false }
                     )

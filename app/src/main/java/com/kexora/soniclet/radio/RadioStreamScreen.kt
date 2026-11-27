@@ -655,7 +655,6 @@ private fun RadioNativeLoadingState(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .padding(bottom = 100.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -750,7 +749,6 @@ private fun RadioFriendlyOfflineOrErrorState(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .padding(bottom = 100.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -942,14 +940,13 @@ private fun RadioDisconnectedCard(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .padding(start = 24.dp, end = 24.dp, bottom = 100.dp),
         contentAlignment = Alignment.Center
     ) {
         Surface(
-            shape = RoundedCornerShape(32.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)),
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("radio_disconnected_card")

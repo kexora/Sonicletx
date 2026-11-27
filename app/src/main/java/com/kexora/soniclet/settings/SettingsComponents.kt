@@ -285,7 +285,7 @@ fun FxSliderRow(
 @Composable
 fun SystemPermissionItem(
     icon: ImageVector,
-    iconTint: Color = Color(0xFF00E676),
+    iconTint: Color = MaterialTheme.colorScheme.primary,
     title: String,
     description: String
 ) {
@@ -385,7 +385,7 @@ fun <T> AnimatedSegmentedControl(
         modifier = modifier
             .fillMaxWidth()
             .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.06f))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(3.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {

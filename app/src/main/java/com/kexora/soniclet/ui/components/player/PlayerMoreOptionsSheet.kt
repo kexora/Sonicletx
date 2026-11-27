@@ -36,7 +36,6 @@ import com.kexora.soniclet.player.MusicViewModel
 import com.kexora.soniclet.utils.SmartTitleCleaner
 import com.kexora.soniclet.utils.StoryShareCardGenerator
 
-private val ObsidianSheetSurface = Color(0xFF0E1411).copy(alpha = 0.97f)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,11 +70,17 @@ fun PlayerMoreOptionsSheet(
         }
     }
 
+    val sheetSurface = MaterialTheme.colorScheme.surface
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val outlineVariant = MaterialTheme.colorScheme.outlineVariant
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        containerColor = ObsidianSheetSurface,
+        containerColor = sheetSurface,
+        contentColor = onSurface,
         scrimColor = Color.Black.copy(alpha = 0.65f),
         tonalElevation = 0.dp,
         dragHandle = null
@@ -87,7 +92,7 @@ fun PlayerMoreOptionsSheet(
                 .align(Alignment.CenterHorizontally)
                 .drawBehind {
                     drawLine(
-                        color = Color.White.copy(alpha = 0.10f),
+                        color = outlineVariant,
                         start = Offset(0f, 0f),
                         end = Offset(size.width, 0f),
                         strokeWidth = 0.8.dp.toPx()
@@ -109,7 +114,7 @@ fun PlayerMoreOptionsSheet(
                         .width(36.dp)
                         .height(4.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.25f))
+                        .background(onSurfaceVariant.copy(alpha = 0.30f))
                 )
             }
 
@@ -159,7 +164,7 @@ fun PlayerMoreOptionsSheet(
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = Color.White
+                        color = onSurface
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
@@ -167,14 +172,14 @@ fun PlayerMoreOptionsSheet(
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = Color.White.copy(alpha = 0.65f)
+                        color = onSurfaceVariant
                     )
                 }
             }
 
             HorizontalDivider(
                 thickness = 0.5.dp,
-                color = Color.White.copy(alpha = 0.10f)
+                color = outlineVariant
             )
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -265,7 +270,7 @@ fun PlayerMoreOptionsSheet(
             // 6. Reload Lyrics
             FlatMoreOptionRow(
                 icon = Icons.Rounded.Refresh,
-                iconTint = Color.White.copy(alpha = 0.85f),
+                iconTint = onSurface.copy(alpha = 0.85f),
                 title = "Reload Lyrics",
                 subtitle = "Re-fetch synchronized LRC lyrics from storage",
                 testTag = "more_opt_reload_lyrics",
@@ -323,12 +328,12 @@ fun PlayerMoreOptionsSheet(
                 showAddToPlaylistDialog = false
                 newPlaylistName = ""
             },
-            containerColor = Color(0xFF131B17),
+            containerColor = MaterialTheme.colorScheme.surface,
             title = {
                 Text(
                     text = "Add to Playlist",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             },
             text = {
@@ -368,20 +373,20 @@ fun PlayerMoreOptionsSheet(
                                         Text(
                                             text = playlist.name,
                                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                            color = Color.White,
+                                            color = MaterialTheme.colorScheme.onSurface,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
                                             text = "${playlist.songIds.size} tracks",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White.copy(alpha = 0.6f)
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
                             }
                         }
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.10f))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
 
                     OutlinedTextField(
@@ -459,7 +464,7 @@ private fun FlatMoreOptionRow(
                     fontSize = 14.5.sp,
                     fontWeight = FontWeight.Medium
                 ),
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -467,7 +472,7 @@ private fun FlatMoreOptionRow(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                color = Color.White.copy(alpha = 0.62f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

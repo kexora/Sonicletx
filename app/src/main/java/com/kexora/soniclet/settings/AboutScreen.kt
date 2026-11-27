@@ -431,14 +431,14 @@ fun AboutSettingsSubPage(
                         Brush.sweepGradient(
                             listOf(
                                 MaterialTheme.colorScheme.primary,
-                                EmeraldBadgeColor.copy(alpha = 0.85f),
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                                 MaterialTheme.colorScheme.primary
                             )
                         )
                     )
                     .padding(2.5.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF0A0F0D)),
+                    .background(MaterialTheme.colorScheme.surface),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -491,7 +491,7 @@ fun AboutSettingsSubPage(
             Spacer(modifier = Modifier.height(14.dp))
 
             // Emerald Version Pill (7-tap Easter Egg trigger preserved)
-            val pillAccent = if (isMohModeActivated) Color(0xFFFF4081) else EmeraldBadgeColor
+            val pillAccent = if (isMohModeActivated) Color(0xFFFF4081) else MaterialTheme.colorScheme.primary
             Surface(
                 onClick = {
                     if (isMohModeActivated) {

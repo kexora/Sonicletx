@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -223,11 +224,14 @@ fun Dhun(
         uiState.queueSourceTitle.ifBlank { song.folderName.ifBlank { "Music Library" } }
     }
 
+    val isLightFallback = MaterialTheme.colorScheme.background.luminance() > 0.5f && song.albumArtUri == null
+    val rootBackdropColor = if (isLightFallback) MaterialTheme.colorScheme.background else Color(0xFF060807)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .offset { IntOffset(0, sheetOffsetY.value.roundToInt()) }
-            .background(Color(0xFF070B09))
+            .background(rootBackdropColor)
             .pointerInput(Unit) {}
     ) {
         DhunArtBackdrop(

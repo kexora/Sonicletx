@@ -62,9 +62,9 @@ fun UserManualSubPage(section: ManualSection) {
                     Surface(
                         onClick = { selectedCategory = key },
                         shape = CircleShape,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.07f),
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
                         contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                        border = if (isSelected) null else BorderStroke(0.6.dp, Color.White.copy(alpha = 0.10f))
+                        border = if (isSelected) null else BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
                         Text(
                             text = label,

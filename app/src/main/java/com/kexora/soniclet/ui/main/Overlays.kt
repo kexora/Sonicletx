@@ -50,6 +50,7 @@ import com.kexora.soniclet.ui.components.common.AnimatedToastBanner
 import com.kexora.soniclet.ui.components.common.SonicletAlertDialog
 import com.kexora.soniclet.ui.components.navigation.AddToPlaylistBottomSheet
 import com.kexora.soniclet.ui.components.navigation.MultiSelectFloatingPillBar
+import com.kexora.soniclet.ui.components.player.SleepTimerDialog
 import kotlinx.coroutines.delay
 
 /**
@@ -66,6 +67,8 @@ fun BoxScope.AppOverlays(
     onSplashFinished: () -> Unit,
     showMiniPlayerAudioFxSheet: Boolean,
     onDismissMiniPlayerAudioFxSheet: () -> Unit,
+    showSleepTimerSheet: Boolean = false,
+    onDismissSleepTimerSheet: () -> Unit = {},
     showExitDialog: Boolean,
     onDismissExitDialog: () -> Unit
 ) {
@@ -289,6 +292,26 @@ fun BoxScope.AppOverlays(
                 viewModel.selectTab(NavigationTab.SETTINGS)
             },
             onDismiss = onDismissMiniPlayerAudioFxSheet
+        )
+    }
+
+    if (showSleepTimerSheet) {
+        SleepTimerDialog(
+            currentOption = uiState.sleepTimerOption,
+            remainingMs = uiState.sleepTimerRemainingMs,
+            finishTrackBeforeSleep = uiState.finishTrackBeforeSleep,
+            onSelectOption = { option ->
+                viewModel.setSleepTimer(option)
+                onDismissSleepTimerSheet()
+            },
+            onSetCustomTime = { minutes ->
+                viewModel.setCustomSleepTimer(minutes)
+                onDismissSleepTimerSheet()
+            },
+            onToggleFinishTrackBeforeSleep = { enabled ->
+                viewModel.setFinishTrackBeforeSleep(enabled)
+            },
+            onDismiss = onDismissSleepTimerSheet
         )
     }
 

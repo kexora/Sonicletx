@@ -165,7 +165,7 @@ fun PlaybackSettingsSubPage(
                         Surface(
                             onClick = { onSetCrossfadeDuration(sec) },
                             shape = CircleShape,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.07f),
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
                             contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f)
                         ) {
@@ -351,7 +351,7 @@ fun PlaybackSettingsSubPage(
                 Surface(
                     onClick = { showSleepTimerDialog = true },
                     shape = CircleShape,
-                    color = if (isTimerActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.08f),
+                    color = if (isTimerActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = if (isTimerActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                 ) {
                     Text(
@@ -395,7 +395,7 @@ fun PlaybackSettingsSubPage(
                         }
                     },
                     shape = CircleShape,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.07f),
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                 ) {
                     Text(
