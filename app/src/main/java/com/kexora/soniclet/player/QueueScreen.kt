@@ -86,7 +86,8 @@ fun PlayQueue(
     favoriteSongIds: Set<Long> = emptySet(),
     actuallyPlayedSongIds: Set<Long> = emptySet(),
     playbackPositions: Map<Long, Long> = emptyMap(),
-    onNavigateToArtist: ((String) -> Unit)? = null
+    onNavigateToArtist: ((String) -> Unit)? = null,
+    isEmbeddedInSheet: Boolean = false
 ) {
     var showSaveDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var queueToDelete by remember { mutableStateOf<SavedQueue?>(null) }
@@ -224,7 +225,12 @@ fun PlayQueue(
                 )
             }
         } else {
-            val bottomPadding = LocalPlayerBottomPadding.current + 8.dp
+            val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val bottomPadding = if (isEmbeddedInSheet) {
+                24.dp + navBarBottom
+            } else {
+                maxOf(24.dp, LocalPlayerBottomPadding.current + 16.dp) + navBarBottom
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -234,7 +240,7 @@ fun PlayQueue(
                     start = 8.dp,
                     end = 8.dp,
                     top = 4.dp,
-                    bottom = bottomPadding + 48.dp
+                    bottom = bottomPadding
                 ),
                 verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
@@ -462,49 +468,6 @@ fun PlayQueue(
 
                 item(key = "queue_brand_footer") {
                     MadeInIndiaFooter()
-                }
-            }
-        }
-
-        // 6. FLOATING FAB: JUMP TO NOW PLAYING
-        AnimatedVisibility(
-            visible = showJumpToPlayingFab,
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = LocalPlayerBottomPadding.current + 16.dp)
-        ) {
-            Surface(
-                onClick = {
-                    coroutineScope.launch {
-                        if (currentIndex >= 0) {
-                            listState.animateScrollToItem((currentIndex + 1).coerceAtLeast(0))
-                        }
-                    }
-                },
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.shadow(12.dp, CircleShape)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Navigation,
-                        contentDescription = "Jump to Now Playing",
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Now Playing 🎵",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                    )
                 }
             }
         }

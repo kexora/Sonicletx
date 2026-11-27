@@ -1483,6 +1483,16 @@ class MusicViewModel @Inject constructor(
         val safePosition = positionMs.coerceIn(0L, _uiState.value.totalDuration.coerceAtLeast(1L))
         exoPlayer.seekTo(safePosition)
         _currentPosition.value = safePosition
+        val currentState = _uiState.value
+        if (currentState.currentLyrics.isNotEmpty()) {
+            val idx = com.kexora.soniclet.lyrics.LyricsUtil.findActiveLyricIndex(
+                currentState.currentLyrics,
+                safePosition + currentState.lyricsSyncOffsetMs
+            )
+            if (idx != currentState.activeLyricIndex) {
+                _uiState.update { it.copy(activeLyricIndex = idx) }
+            }
+        }
         MediaNotificationManager.updatePlaybackState(
             isPlaying = exoPlayer.isPlaying,
             currentPositionMs = safePosition,
@@ -2048,14 +2058,7 @@ class MusicViewModel @Inject constructor(
                 val offset = _uiState.value.lyricsSyncOffsetMs
                 val effectivePos = currentPos + offset
                 if (lyrics.isNotEmpty()) {
-                    var idx = -1
-                    for (i in lyrics.indices) {
-                        if (lyrics[i].timeMs <= effectivePos) {
-                            idx = i
-                        } else {
-                            break
-                        }
-                    }
+                    val idx = com.kexora.soniclet.lyrics.LyricsUtil.findActiveLyricIndex(lyrics, effectivePos)
                     if (idx != _uiState.value.activeLyricIndex) {
                         _uiState.update { it.copy(activeLyricIndex = idx) }
                     }
@@ -2100,7 +2103,9 @@ class MusicViewModel @Inject constructor(
                     }
                 }
 
-                delay(100)
+                // 50ms high-frequency ticker whenever lyrics are loaded & Now Playing is active
+                val tickDelayMs = if (lyrics.isNotEmpty() && _uiState.value.currentTab == NavigationTab.NOW_PLAYING) 50L else 100L
+                delay(tickDelayMs)
             }
         }
     }

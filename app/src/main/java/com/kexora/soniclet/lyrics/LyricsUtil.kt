@@ -20,6 +20,60 @@ data class LyricsResult(
 object LyricsUtil {
 
     private const val LYRICS_FOLDER = "lyrics"
+    private const val SYNC_OFFSET_PREFS = "soniclet_lyrics_sync_offsets"
+
+    /**
+     * Loads the user's persisted per-song lyrics sync offset (in milliseconds).
+     */
+    fun getSyncOffsetMs(context: Context, songId: Long): Long {
+        return try {
+            val prefs = context.applicationContext.getSharedPreferences(SYNC_OFFSET_PREFS, Context.MODE_PRIVATE)
+            prefs.getLong("offset_$songId", 0L).coerceIn(-15000L, 15000L)
+        } catch (_: Throwable) {
+            0L
+        }
+    }
+
+    /**
+     * Persists a per-song custom lyrics sync offset (in milliseconds) in SharedPreferences.
+     */
+    fun saveSyncOffsetMs(context: Context, songId: Long, offsetMs: Long) {
+        try {
+            val prefs = context.applicationContext.getSharedPreferences(SYNC_OFFSET_PREFS, Context.MODE_PRIVATE)
+            val clamped = offsetMs.coerceIn(-15000L, 15000L)
+            if (clamped == 0L) {
+                prefs.edit().remove("offset_$songId").apply()
+            } else {
+                prefs.edit().putLong("offset_$songId", clamped).apply()
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    /**
+     * High-precision O(log n) Binary Search active lyric line resolver.
+     * Returns the index of the latest lyric line whose timestamp <= effectivePositionMs,
+     * or -1 if playback is before the first timestamped line.
+     */
+    fun findActiveLyricIndex(lyrics: List<LyricLine>, effectivePositionMs: Long): Int {
+        if (lyrics.isEmpty()) return -1
+        if (effectivePositionMs < lyrics.first().timeMs) return -1
+        if (effectivePositionMs >= lyrics.last().timeMs) return lyrics.lastIndex
+
+        var low = 0
+        var high = lyrics.lastIndex
+        var result = -1
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            if (lyrics[mid].timeMs <= effectivePositionMs) {
+                result = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return result
+    }
 
     /**
      * Tries to find time-synced or embedded lyrics for a given song:
@@ -172,31 +226,50 @@ object LyricsUtil {
         }
     }
 
+    private fun parseTimestampParts(minStr: String, secStr: String, fracStr: String): Long {
+        val min = minStr.toLongOrNull() ?: 0L
+        val sec = secStr.toLongOrNull() ?: 0L
+        val ms = when (fracStr.length) {
+            0 -> 0L
+            1 -> (fracStr.toLongOrNull() ?: 0L) * 100L
+            2 -> (fracStr.toLongOrNull() ?: 0L) * 10L
+            else -> (fracStr.take(3).toLongOrNull() ?: 0L)
+        }
+        return (min * 60_000L) + (sec * 1_000L) + ms
+    }
+
     /**
-     * Parses LRC text (standard or enhanced karaoke word-level format) into a chronological list
-     * of [LyricLine] instances with millisecond precision and word-by-word timing breakdown.
+     * Full LRC & Enhanced Karaoke Parser:
+     * - Supports [mm:ss.xx], [mm:ss.xxx], [mm:ss:xx], and [mm:ss] timestamp formats.
+     * - Expands multi-timestamp lines ([00:15.20][01:22.40]Chorus) into sorted individual entries.
+     * - Respects [offset:+/-ms] LRC header tags automatically.
+     * - Supports enhanced word-level timestamps (<mm:ss.xx>word) and estimates smooth
+     *   character/word progress across (nextLineTime - currentLineTime) in Karaoke mode.
      */
     fun parseLrc(lrcText: String, totalTrackDurationMs: Long = 0L): List<LyricLine> {
         if (lrcText.isBlank()) return emptyList()
 
-        // 1. Check for global [offset:+/-ms] tag
-        val offsetRegex = Regex("\\[offset:\\s*([+-]?\\d+)\\]", RegexOption.IGNORE_CASE)
-        val globalOffsetMs = offsetRegex.find(lrcText)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+        // Strip UTF-8 BOM if present
+        val cleanedInput = lrcText.removePrefix("\uFEFF")
 
-        // 2. Extract lines with timestamps: e.g. [01:23.45] or [01:23.456] or [01:23]
-        val timestampRegex = Regex("\\[(\\d{1,2}):(\\d{2})(?:[\\.:](\\d{1,3}))?\\]")
-        val rawLines = lrcText.lines()
+        // 1. Check for global [offset:+/-ms] tag (positive offset means lyrics appear earlier -> subtract or add per spec)
+        val offsetRegex = Regex("\\[offset:\\s*([+-]?\\d+)\\s*\\]", RegexOption.IGNORE_CASE)
+        val globalOffsetMs = offsetRegex.find(cleanedInput)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+
+        // 2. Match [mm:ss.xx], [mm:ss.xxx], [mm:ss:xx], and [mm:ss]
+        val timestampRegex = Regex("\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?\\]")
+        val rawLines = cleanedInput.lines()
         val parsedEntries = mutableListOf<Pair<Long, String>>()
 
         for (rawLine in rawLines) {
             val trimmed = rawLine.trim()
             if (trimmed.isEmpty()) continue
 
-            // Skip standard ID3/LRC metadata tags
             val lower = trimmed.lowercase()
             if (lower.startsWith("[ti:") ||
                 lower.startsWith("[ar:") ||
                 lower.startsWith("[al:") ||
+                lower.startsWith("[au:") ||
                 lower.startsWith("[by:") ||
                 lower.startsWith("[offset:") ||
                 lower.startsWith("[re:") ||
@@ -209,78 +282,81 @@ object LyricsUtil {
             val matches = timestampRegex.findAll(trimmed).toList()
             if (matches.isEmpty()) continue
 
-            // The lyric text following all timestamp tags on this line
             val lastMatch = matches.last()
             val lineContent = trimmed.substring(lastMatch.range.last + 1).trim()
 
+            // Expand every timestamp tag on the line into its own sorted entry
             for (match in matches) {
-                val min = match.groupValues[1].toLongOrNull() ?: 0L
-                val sec = match.groupValues[2].toLongOrNull() ?: 0L
-                val msStr = match.groupValues[3]
-                val ms = when (msStr.length) {
-                    1 -> (msStr.toLongOrNull() ?: 0L) * 100L
-                    2 -> (msStr.toLongOrNull() ?: 0L) * 10L
-                    3 -> (msStr.toLongOrNull() ?: 0L)
-                    else -> 0L
-                }
-                val totalTime = (min * 60 * 1000L) + (sec * 1000L) + ms + globalOffsetMs
-                parsedEntries.add(Pair(totalTime.coerceAtLeast(0L), lineContent))
+                val baseTimeMs = parseTimestampParts(
+                    match.groupValues[1],
+                    match.groupValues[2],
+                    match.groupValues[3]
+                )
+                val adjustedTimeMs = (baseTimeMs + globalOffsetMs).coerceAtLeast(0L)
+                parsedEntries.add(Pair(adjustedTimeMs, lineContent))
             }
         }
 
-        // If no timestamped lines could be found, fall back to plain text line separation
         if (parsedEntries.isEmpty()) {
-            return parsePlainTextLyrics(lrcText, totalTrackDurationMs)
+            return parsePlainTextLyrics(cleanedInput, totalTrackDurationMs)
         }
 
+        // Sort chronologically and filter consecutive empty instrumental breaks neatly
         val sorted = parsedEntries.sortedBy { it.first }
         val result = mutableListOf<LyricLine>()
 
-        val wordTagRegex = Regex("<(\\d{1,2}):(\\d{2})(?:[\\.:](\\d{1,3}))?>([^<]*)")
+        // Match enhanced word-level timestamps: <mm:ss.xx>word or <mm:ss:xx>word or <mm:ss>word
+        val wordTagRegex = Regex("<(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?>([^<]*)")
 
         for (i in sorted.indices) {
             val (timeMs, rawText) = sorted[i]
-            val nextTimeMs = if (i + 1 < sorted.size) sorted[i + 1].first else (timeMs + 4500L)
-            val gap = (nextTimeMs - timeMs).coerceAtLeast(1000L)
-            // Limit line duration so vocal lines don't stay active across long instrumentals
-            val durationMs = if (gap > 7500L) 5000L else gap
+            val fallbackEnd = if (totalTrackDurationMs > timeMs) {
+                minOf(totalTrackDurationMs, timeMs + 6000L)
+            } else {
+                timeMs + 4500L
+            }
+            val nextTimeMs = if (i + 1 < sorted.size) sorted[i + 1].first else fallbackEnd
+            val rawSpan = (nextTimeMs - timeMs).coerceAtLeast(600L)
+            // Cap overly long instrumental pauses so word sweep completes naturally while vocals sing
+            val durationMs = rawSpan.coerceAtMost(8500L)
 
-            // Check if this line contains enhanced word timestamps: <mm:ss.xx>
             val wordMatches = wordTagRegex.findAll(rawText).toList()
 
             if (wordMatches.isNotEmpty()) {
                 val words = mutableListOf<LyricWord>()
                 val cleanTextBuilder = StringBuilder()
 
+                // Handle any leading untagged text before the first <mm:ss.xx> tag
+                val prefixText = rawText.substring(0, wordMatches.first().range.first).trim()
+                if (prefixText.isNotEmpty()) {
+                    val firstWordStart = (parseTimestampParts(
+                        wordMatches.first().groupValues[1],
+                        wordMatches.first().groupValues[2],
+                        wordMatches.first().groupValues[3]
+                    ) + globalOffsetMs).coerceAtLeast(timeMs + 100L)
+                    words.add(LyricWord(text = prefixText, startMs = timeMs, endMs = firstWordStart))
+                    cleanTextBuilder.append(prefixText)
+                }
+
                 for (wIdx in wordMatches.indices) {
                     val wm = wordMatches[wIdx]
-                    val wMin = wm.groupValues[1].toLongOrNull() ?: 0L
-                    val wSec = wm.groupValues[2].toLongOrNull() ?: 0L
-                    val wMsStr = wm.groupValues[3]
-                    val wMs = when (wMsStr.length) {
-                        1 -> (wMsStr.toLongOrNull() ?: 0L) * 100L
-                        2 -> (wMsStr.toLongOrNull() ?: 0L) * 10L
-                        3 -> (wMsStr.toLongOrNull() ?: 0L)
-                        else -> 0L
-                    }
-                    val wordStart = ((wMin * 60 * 1000L) + (wSec * 1000L) + wMs + globalOffsetMs).coerceAtLeast(timeMs)
+                    val wordStart = (parseTimestampParts(
+                        wm.groupValues[1],
+                        wm.groupValues[2],
+                        wm.groupValues[3]
+                    ) + globalOffsetMs).coerceAtLeast(timeMs)
                     val wordText = wm.groupValues[4].trim()
 
                     val wordEnd = if (wIdx + 1 < wordMatches.size) {
                         val nextWm = wordMatches[wIdx + 1]
-                        val nextMin = nextWm.groupValues[1].toLongOrNull() ?: 0L
-                        val nextSec = nextWm.groupValues[2].toLongOrNull() ?: 0L
-                        val nextMsStr = nextWm.groupValues[3]
-                        val nextMs = when (nextMsStr.length) {
-                            1 -> (nextMsStr.toLongOrNull() ?: 0L) * 100L
-                            2 -> (nextMsStr.toLongOrNull() ?: 0L) * 10L
-                            3 -> (nextMsStr.toLongOrNull() ?: 0L)
-                            else -> 0L
-                        }
-                        val nextStart = ((nextMin * 60 * 1000L) + (nextSec * 1000L) + nextMs + globalOffsetMs)
-                        nextStart.coerceAtLeast(wordStart + 80L)
+                        val nextStart = parseTimestampParts(
+                            nextWm.groupValues[1],
+                            nextWm.groupValues[2],
+                            nextWm.groupValues[3]
+                        ) + globalOffsetMs
+                        nextStart.coerceAtLeast(wordStart + 60L)
                     } else {
-                        (wordStart + 1200L).coerceAtMost(timeMs + durationMs)
+                        (timeMs + durationMs).coerceAtLeast(wordStart + 250L)
                     }
 
                     if (wordText.isNotEmpty()) {
@@ -294,54 +370,64 @@ object LyricsUtil {
                     rawText.replace(Regex("<[^>]+>"), "").trim()
                 }
 
-                result.add(
-                    LyricLine(
-                        timeMs = timeMs,
-                        text = fullText,
-                        durationMs = durationMs,
-                        words = words,
-                        isKaraoke = true
-                    )
-                )
-            } else {
-                // Standard LRC line without explicit word timestamps:
-                // Distribute words smoothly across the line duration for natural karaoke progression!
-                val cleanText = rawText.replace(Regex("<[^>]+>"), "").trim()
-                val splitWords = cleanText.split(Regex("\\s+")).filter { it.isNotBlank() }
-
-                if (splitWords.isEmpty()) {
+                if (fullText.isNotBlank()) {
                     result.add(
                         LyricLine(
                             timeMs = timeMs,
-                            text = cleanText.ifEmpty { "♪" },
-                            durationMs = durationMs,
-                            words = emptyList(),
-                            isKaraoke = false
-                        )
-                    )
-                } else {
-                    val weights = splitWords.map { it.length.coerceAtLeast(1) + 2 }
-                    val totalWeight = weights.sum().coerceAtLeast(1)
-                    val words = mutableListOf<LyricWord>()
-                    var currentWordStart = timeMs
-
-                    for (wIdx in splitWords.indices) {
-                        val wordDuration = ((weights[wIdx].toFloat() / totalWeight) * durationMs).toLong().coerceAtLeast(120L)
-                        val wordEnd = (currentWordStart + wordDuration).coerceAtMost(timeMs + durationMs)
-                        words.add(LyricWord(text = splitWords[wIdx], startMs = currentWordStart, endMs = wordEnd))
-                        currentWordStart = wordEnd
-                    }
-
-                    result.add(
-                        LyricLine(
-                            timeMs = timeMs,
-                            text = cleanText,
+                            text = fullText,
                             durationMs = durationMs,
                             words = words,
                             isKaraoke = true
                         )
                     )
                 }
+            } else {
+                val cleanText = rawText.replace(Regex("<[^>]+>"), "").trim()
+                if (cleanText.isBlank()) {
+                    // Preserve subtle instrumental marker only if previous wasn't also a marker
+                    if (result.isNotEmpty() && result.last().text != "•••") {
+                        result.add(
+                            LyricLine(
+                                timeMs = timeMs,
+                                text = "•••",
+                                durationMs = durationMs,
+                                words = emptyList(),
+                                isKaraoke = false
+                            )
+                        )
+                    }
+                    continue
+                }
+
+                val splitWords = cleanText.split(Regex("\\s+")).filter { it.isNotBlank() }
+                if (splitWords.isEmpty()) continue
+
+                // Distribute word timing proportionally by character length across the line's duration
+                val weights = splitWords.map { it.length.coerceAtLeast(1) + 1 }
+                val totalWeight = weights.sum().coerceAtLeast(1)
+                val words = mutableListOf<LyricWord>()
+                var cursorMs = timeMs
+
+                for (wIdx in splitWords.indices) {
+                    val wordEnd = if (wIdx == splitWords.lastIndex) {
+                        timeMs + durationMs
+                    } else {
+                        val wordDur = ((weights[wIdx].toDouble() / totalWeight) * durationMs).toLong().coerceAtLeast(80L)
+                        (cursorMs + wordDur).coerceAtMost(timeMs + durationMs)
+                    }
+                    words.add(LyricWord(text = splitWords[wIdx], startMs = cursorMs, endMs = wordEnd.coerceAtLeast(cursorMs + 1L)))
+                    cursorMs = wordEnd
+                }
+
+                result.add(
+                    LyricLine(
+                        timeMs = timeMs,
+                        text = cleanText,
+                        durationMs = durationMs,
+                        words = words,
+                        isKaraoke = true
+                    )
+                )
             }
         }
 

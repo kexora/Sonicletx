@@ -26,7 +26,18 @@ object FastBlurUtil {
             return null
         }
 
-        return stackBlur(input, safeRadius)
+        val blurred = stackBlur(input, safeRadius)
+        if (input !== sentBitmap && input !== blurred && !input.isRecycled) {
+            input.recycle()
+        }
+        return blurred
+    }
+
+    /**
+     * Heavy creamy Gaussian-like blur tuned for Now Playing full-bleed backdrops on Android 11 and below.
+     */
+    fun blurForBackdrop(sentBitmap: Bitmap): Bitmap? {
+        return blurBitmap(sentBitmap, radius = 25, sampling = 6f)
     }
 
     /**

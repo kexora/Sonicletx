@@ -8,23 +8,17 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Album
-import androidx.compose.material.icons.rounded.Lyrics
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,7 +52,10 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Dynamic ambient album art backdrop layer for the Dhun Now Playing screen.
+ * 100% Opaque Dynamic Blur Backdrop for Now Playing — zero bleed-through from underlying screens.
+ * Renders a solid Color(0xFF070B09) base, heavily blurred full-bleed album artwork
+ * (Modifier.blur(56.dp) on Android 12+ and FastBlurUtil bitmap blur on Android 11-),
+ * and a smooth vertical dark frosted gradient scrim.
  */
 @Composable
 fun DhunArtBackdrop(
@@ -68,32 +65,39 @@ fun DhunArtBackdrop(
     bgScale: Float
 ) {
     val context = LocalContext.current
+    val solidBase = Color(0xFF070B09)
 
-    // Immediate dynamic vibrant gradient base - guarantees rich colors from frame 1
+    // Layer 1: 100% opaque obsidian base — guarantees zero bleed-through from Home/Songs/MiniPlayer
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(solidBase)
+    )
+
+    // Layer 2: Ambient color wash for tracks without artwork and instant frame-1 color richness
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        animatedDominant.copy(alpha = 0.52f),
-                        animatedVibrant.copy(alpha = 0.30f),
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.92f),
-                        MaterialTheme.colorScheme.background
+                        animatedDominant.copy(alpha = 0.34f),
+                        animatedVibrant.copy(alpha = 0.16f),
+                        solidBase
                     )
                 )
             )
     )
 
-    // Blurred Cover Art Backdrop with fast 160ms crossfade to prevent delayed pop-in
+    // Layer 3: Full-bleed heavily blurred album artwork
     if (song.albumArtUri != null) {
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(song.albumArtUri)
-                .crossfade(160)
+                .crossfade(220)
                 .apply {
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                        transformations(CompatBlurTransformation(context, radius = 22, sampling = 6f))
+                        transformations(CompatBlurTransformation(context, radius = 25, sampling = 6f))
                     }
                 }
                 .build(),
@@ -103,30 +107,21 @@ fun DhunArtBackdrop(
             modifier = Modifier
                 .fillMaxSize()
                 .scale(bgScale)
-                .then(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(60.dp, 60.dp) else Modifier)
+                .then(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(56.dp, 56.dp) else Modifier)
         )
     }
 
-    // Dark dimming overlay for contrast & readability
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.64f))
-    )
-
-    // Gradient fade to background
+    // Layer 4: Smooth vertical dark frosted gradient scrim (crisp contrast + dynamic album glow)
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color.Transparent,
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.42f),
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.88f),
-                        MaterialTheme.colorScheme.background
-                    ),
-                    startY = 0f
+                        Color(0xA6070B09),
+                        Color(0xCC070B09),
+                        Color(0xF5070B09)
+                    )
                 )
             )
     )
@@ -169,232 +164,190 @@ fun DhunPortraitArtCard(
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .then(sheetDragModifier)
+            .fillMaxSize()
+            .then(if (!isInlineLyricsVisible) sheetDragModifier else Modifier)
     ) {
-        // Soft ambient radial glow behind artwork (constrained so it never causes layout shift)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .sizeIn(maxHeight = maxArtHeight)
-                .aspectRatio(1f, matchHeightConstraintsFirst = false)
-                .scale(auraGlowScale)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            listOf(
-                                animatedDominant.copy(alpha = auraGlowAlpha * 0.85f),
-                                animatedVibrant.copy(alpha = auraGlowAlpha * 0.40f),
-                                Color.Transparent
-                            )
-                        } else {
-                            listOf(
-                                animatedDominant.copy(alpha = auraGlowAlpha * 0.65f),
-                                animatedVibrant.copy(alpha = auraGlowAlpha * 0.30f),
-                                Color.Transparent
-                            )
-                        }
-                    )
+        AnimatedContent(
+            targetState = isInlineLyricsVisible,
+            transitionSpec = {
+                fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
+            },
+            label = "artwork_lyrics_flip",
+            modifier = Modifier.fillMaxSize()
+        ) { showLyrics ->
+            if (showLyrics) {
+                // Box-Free, Transparent Inline Lyrics directly over the blurred album backdrop
+                TimeSyncedKaraokeView(
+                    lyrics = uiState.currentLyrics,
+                    activeLyricIndex = uiState.activeLyricIndex,
+                    currentPosition = currentPosition,
+                    syncOffsetMs = uiState.lyricsSyncOffsetMs,
+                    isKaraokeModeEnabled = uiState.isKaraokeModeEnabled,
+                    lyricsSourceType = uiState.lyricsSourceType,
+                    isLyricsLoading = uiState.isLyricsLoading,
+                    isKariModeEnabled = uiState.isKariModeEnabled,
+                    dominantColor = animatedDominant,
+                    vibrantColor = animatedVibrant,
+                    onSeekTo = { pos -> viewModel.seekTo(pos) },
+                    onAdjustOffset = { delta -> viewModel.adjustLyricsOffset(delta) },
+                    onResetOffset = { viewModel.resetLyricsOffset() },
+                    onToggleKaraokeMode = { viewModel.toggleKaraokeMode() },
+                    onImportLyrics = { uri -> viewModel.importLyricsFromUri(song, uri) },
+                    onClearCustomLyrics = { viewModel.clearImportedLyrics(song) },
+                    isPlaying = uiState.isPlaying,
+                    onReturnToArt = { onToggleInlineLyrics() },
+                    modifier = Modifier.fillMaxSize()
                 )
-                .then(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(38.dp) else Modifier)
-        )
-
-        // Edge-to-edge full-width 1:1 squircle artwork / inline Karaoke Lyrics frame
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .sizeIn(maxHeight = maxArtHeight)
-                .aspectRatio(1f, matchHeightConstraintsFirst = false)
-                .offset { IntOffset(horizontalOffsetX.value.roundToInt(), 0) }
-                .scale(if (isInlineLyricsVisible) 1f else artScale)
-                .shadow(
-                    elevation = 16.dp,
-                    shape = cardShape,
-                    spotColor = animatedDominant.copy(alpha = 0.55f),
-                    ambientColor = Color.Black.copy(alpha = 0.45f)
-                )
-                .clip(cardShape)
-                .border(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.14f),
-                    shape = cardShape
-                )
-                .pointerInput(song.id, isInlineLyricsVisible) {
-                    if (!isInlineLyricsVisible) {
-                        detectTapGestures(
-                            onTap = { onToggleInlineLyrics() }
-                        )
-                    }
-                }
-                .pointerInput(song.id, isInlineLyricsVisible) {
-                    if (!isInlineLyricsVisible) {
-                        detectHorizontalDragGestures(
-                            onDragEnd = {
-                                val currentX = horizontalOffsetX.value
-                                scope.launch {
-                                    when {
-                                        currentX < -swipeThresholdPx -> {
-                                            horizontalOffsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                                            onSwipeNext()
-                                        }
-                                        currentX > swipeThresholdPx -> {
-                                            horizontalOffsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                                            onSwipePrevious()
-                                        }
-                                        else -> {
-                                            horizontalOffsetX.animateTo(
-                                                0f,
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMedium
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                            },
-                            onDragCancel = {
-                                scope.launch {
-                                    horizontalOffsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMedium))
-                                }
-                            },
-                            onHorizontalDrag = { change, dragAmount ->
-                                if (abs(dragAmount) > 0f) {
-                                    change.consume()
-                                    scope.launch {
-                                        val next = (horizontalOffsetX.value + dragAmount * 0.72f)
-                                            .coerceIn(-maxDragPx, maxDragPx)
-                                        horizontalOffsetX.snapTo(next)
-                                    }
-                                }
-                            }
-                        )
-                    }
-                }
-                .testTag("dhun_large_cover_art"),
-            contentAlignment = Alignment.Center
-        ) {
-            AnimatedContent(
-                targetState = isInlineLyricsVisible,
-                transitionSpec = {
-                    fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
-                },
-                label = "artwork_lyrics_flip",
-                modifier = Modifier.fillMaxSize()
-            ) { showLyrics ->
-                if (showLyrics) {
+            } else {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    // Soft ambient radial glow behind artwork
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xD90A100D))
-                    ) {
-                        TimeSyncedKaraokeView(
-                            lyrics = uiState.currentLyrics,
-                            activeLyricIndex = uiState.activeLyricIndex,
-                            currentPosition = currentPosition,
-                            syncOffsetMs = uiState.lyricsSyncOffsetMs,
-                            isKaraokeModeEnabled = uiState.isKaraokeModeEnabled,
-                            lyricsSourceType = uiState.lyricsSourceType,
-                            isLyricsLoading = uiState.isLyricsLoading,
-                            isKariModeEnabled = uiState.isKariModeEnabled,
-                            dominantColor = animatedDominant,
-                            vibrantColor = animatedVibrant,
-                            onSeekTo = { pos -> viewModel.seekTo(pos) },
-                            onAdjustOffset = { delta -> viewModel.adjustLyricsOffset(delta) },
-                            onResetOffset = { viewModel.resetLyricsOffset() },
-                            onToggleKaraokeMode = { viewModel.toggleKaraokeMode() },
-                            onImportLyrics = { uri -> viewModel.importLyricsFromUri(song, uri) },
-                            onClearCustomLyrics = { viewModel.clearImportedLyrics(song) }
-                        )
-
-                        // Floating compact pill to flip back to Cover Art
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xCC0E1512),
-                            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.16f)),
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(10.dp)
-                                .clip(CircleShape)
-                                .clickable { onToggleInlineLyrics() }
-                                .testTag("inline_lyrics_close_pill")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Album,
-                                    contentDescription = "Show Cover Art",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Text(
-                                    text = "Art",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    ),
-                                    color = Color.White
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        if (song.albumArtUri != null) {
-                            SubcomposeAsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(song.albumArtUri)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = "Album Art — tap for lyrics or swipe to skip",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                                error = {
-                                    FallbackAlbumArt(song.title, modifier = Modifier.fillMaxSize())
-                                }
-                            )
-                        } else {
-                            FallbackAlbumArt(song.title, modifier = Modifier.fillMaxSize())
-                        }
-
-                        // Subtle specular highlight on top edge
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(28.dp)
-                                .align(Alignment.TopCenter)
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.White.copy(alpha = 0.14f),
+                            .fillMaxWidth()
+                            .sizeIn(maxHeight = maxArtHeight)
+                            .aspectRatio(1f, matchHeightConstraintsFirst = false)
+                            .scale(auraGlowScale)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.radialGradient(
+                                    colors = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        listOf(
+                                            animatedDominant.copy(alpha = auraGlowAlpha * 0.80f),
+                                            animatedVibrant.copy(alpha = auraGlowAlpha * 0.35f),
                                             Color.Transparent
                                         )
-                                    )
+                                    } else {
+                                        listOf(
+                                            animatedDominant.copy(alpha = auraGlowAlpha * 0.60f),
+                                            animatedVibrant.copy(alpha = auraGlowAlpha * 0.28f),
+                                            Color.Transparent
+                                        )
+                                    }
                                 )
-                        )
+                            )
+                            .then(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(38.dp) else Modifier)
+                    )
 
-                        // Subtle tap-for-lyrics hint badge at bottom-end
-                        if (uiState.currentLyrics.isNotEmpty()) {
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0x990A100D),
-                                border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.16f)),
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(10.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Lyrics,
-                                    contentDescription = "Lyrics available",
-                                    tint = Color.White.copy(alpha = 0.85f),
+                    // Clean 1:1 squircle album cover (zero stray badges, crisp glass hairline rim)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .sizeIn(maxHeight = maxArtHeight)
+                            .aspectRatio(1f, matchHeightConstraintsFirst = false)
+                            .offset { IntOffset(horizontalOffsetX.value.roundToInt(), 0) }
+                            .scale(artScale)
+                            .shadow(
+                                elevation = 16.dp,
+                                shape = cardShape,
+                                spotColor = animatedDominant.copy(alpha = 0.50f),
+                                ambientColor = Color.Black.copy(alpha = 0.55f)
+                            )
+                            .clip(cardShape)
+                            .border(
+                                width = 1.dp,
+                                color = Color.White.copy(alpha = 0.14f),
+                                shape = cardShape
+                            )
+                            .pointerInput(song.id) {
+                                detectTapGestures(
+                                    onTap = { onToggleInlineLyrics() }
+                                )
+                            }
+                            .pointerInput(song.id) {
+                                detectHorizontalDragGestures(
+                                    onDragEnd = {
+                                        val currentX = horizontalOffsetX.value
+                                        scope.launch {
+                                            when {
+                                                currentX < -swipeThresholdPx -> {
+                                                    horizontalOffsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                                    onSwipeNext()
+                                                }
+                                                currentX > swipeThresholdPx -> {
+                                                    horizontalOffsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                                    onSwipePrevious()
+                                                }
+                                                else -> {
+                                                    horizontalOffsetX.animateTo(
+                                                        0f,
+                                                        spring(
+                                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                            stiffness = Spring.StiffnessMedium
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onDragCancel = {
+                                        scope.launch {
+                                            horizontalOffsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMedium))
+                                        }
+                                    },
+                                    onHorizontalDrag = { change, dragAmount ->
+                                        if (abs(dragAmount) > 0f) {
+                                            change.consume()
+                                            scope.launch {
+                                                val next = (horizontalOffsetX.value + dragAmount * 0.72f)
+                                                    .coerceIn(-maxDragPx, maxDragPx)
+                                                horizontalOffsetX.snapTo(next)
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            .testTag("dhun_large_cover_art"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AnimatedContent(
+                            targetState = song,
+                            contentKey = { it.id },
+                            transitionSpec = {
+                                (fadeIn(animationSpec = tween(220)) +
+                                    slideInHorizontally(animationSpec = tween(220)) { it / 10 }) togetherWith
+                                    (fadeOut(animationSpec = tween(180)) +
+                                        slideOutHorizontally(animationSpec = tween(180)) { -it / 10 })
+                            },
+                            label = "artwork_track_transition",
+                            modifier = Modifier.fillMaxSize()
+                        ) { targetSong ->
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                if (targetSong.albumArtUri != null) {
+                                    SubcomposeAsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(targetSong.albumArtUri)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = "Album Art — tap for lyrics or swipe to skip",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(),
+                                        error = {
+                                            FallbackAlbumArt(targetSong.title, modifier = Modifier.fillMaxSize())
+                                        }
+                                    )
+                                } else {
+                                    FallbackAlbumArt(targetSong.title, modifier = Modifier.fillMaxSize())
+                                }
+
+                                // Subtle specular highlight on top edge
+                                Box(
                                     modifier = Modifier
-                                        .padding(6.dp)
-                                        .size(14.dp)
+                                        .fillMaxWidth()
+                                        .height(26.dp)
+                                        .align(Alignment.TopCenter)
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color.White.copy(alpha = 0.12f),
+                                                    Color.Transparent
+                                                )
+                                            )
+                                        )
                                 )
                             }
                         }

@@ -221,8 +221,8 @@ fun DhunActionPillRow(
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "pill_like_scale"
     )
-    val pillBg = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-    val pillBorder = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
+    val pillBg = Color.White.copy(alpha = 0.08f)
+    val pillBorder = Color.White.copy(alpha = 0.14f)
 
     Row(
         modifier = modifier
@@ -237,11 +237,11 @@ fun DhunActionPillRow(
             shape = CircleShape,
             color = if (isFavorite) likeColor.copy(alpha = 0.18f) else pillBg,
             border = BorderStroke(
-                width = 0.8.dp,
+                width = 0.6.dp,
                 color = if (isFavorite) likeColor.copy(alpha = 0.50f) else pillBorder
             ),
             modifier = Modifier
-                .height(36.dp)
+                .height(34.dp)
                 .clip(CircleShape)
                 .clickable { viewModel.toggleFavorite(song.id) }
                 .testTag("now_playing_like_pill")
@@ -254,18 +254,18 @@ fun DhunActionPillRow(
                 Icon(
                     imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Rounded.FavoriteBorder,
                     contentDescription = if (isFavorite) "Unlike" else "Like",
-                    tint = if (isFavorite) likeColor else MaterialTheme.colorScheme.onSurface,
+                    tint = if (isFavorite) likeColor else Color.White,
                     modifier = Modifier
-                        .size(16.dp)
+                        .size(15.dp)
                         .scale(likeScale)
                 )
                 Text(
                     text = if (isFavorite) "Liked" else "Like",
                     style = MaterialTheme.typography.labelMedium.copy(
                         fontSize = 12.sp,
-                        fontWeight = if (isFavorite) FontWeight.Bold else FontWeight.Medium
+                        fontWeight = if (isFavorite) FontWeight.SemiBold else FontWeight.Medium
                     ),
-                    color = if (isFavorite) likeColor else MaterialTheme.colorScheme.onSurface,
+                    color = if (isFavorite) likeColor else Color.White,
                     maxLines = 1,
                     softWrap = false
                 )
@@ -279,12 +279,12 @@ fun DhunActionPillRow(
             shape = CircleShape,
             color = if (isHiRes) specAccent.copy(alpha = 0.14f) else pillBg,
             border = BorderStroke(
-                width = 0.8.dp,
+                width = 0.6.dp,
                 color = if (isHiRes) specAccent.copy(alpha = 0.42f) else pillBorder
             ),
             modifier = Modifier
                 .weight(1f)
-                .height(36.dp)
+                .height(34.dp)
                 .clip(CircleShape)
                 .clickable { onOpenAudioInspector() }
                 .testTag("now_playing_audio_spec_pill")
@@ -300,17 +300,17 @@ fun DhunActionPillRow(
                     imageVector = Icons.Rounded.GraphicEq,
                     contentDescription = "Audio Fidelity Details",
                     tint = if (isHiRes) specAccent else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(15.dp)
+                    modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(5.dp))
                 Text(
                     text = "${specs.bitDepth}-BIT • ${specs.sampleRateFormatted}",
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
                         fontFeatureSettings = "tnum"
                     ),
-                    color = if (isHiRes) specAccent else MaterialTheme.colorScheme.onSurface,
+                    color = if (isHiRes) specAccent else Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -321,9 +321,9 @@ fun DhunActionPillRow(
         Surface(
             shape = CircleShape,
             color = pillBg,
-            border = BorderStroke(0.8.dp, pillBorder),
+            border = BorderStroke(0.6.dp, pillBorder),
             modifier = Modifier
-                .height(36.dp)
+                .height(34.dp)
                 .clip(CircleShape)
                 .clickable { onOpenQueue() }
                 .testTag("now_playing_up_next_pill")
@@ -336,8 +336,8 @@ fun DhunActionPillRow(
                 Icon(
                     imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
                     contentDescription = "Up Next Queue",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(16.dp)
+                    tint = Color.White,
+                    modifier = Modifier.size(15.dp)
                 )
                 Text(
                     text = "Up Next",
@@ -345,7 +345,7 @@ fun DhunActionPillRow(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     ),
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = Color.White,
                     maxLines = 1,
                     softWrap = false
                 )
@@ -375,7 +375,7 @@ fun DhunPlaybackButtonsRow(
 ) {
     val activeAccent = if (isKariModeEnabled) animatedVibrant else MaterialTheme.colorScheme.primary
     val playCornerRadius by animateDpAsState(
-        targetValue = if (isPlaying) 22.dp else (playButtonSize / 2),
+        targetValue = if (isPlaying) 20.dp else (playButtonSize / 2),
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMediumLow
@@ -600,45 +600,41 @@ private fun BottomUtilityItem(
     modifier: Modifier = Modifier
 ) {
     val activeColor = MaterialTheme.colorScheme.primary
-    val tint = if (isActive) activeColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+    val tint = if (isActive) activeColor else Color.White.copy(alpha = 0.72f)
 
     Column(
         modifier = modifier
             .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 6.dp, horizontal = 4.dp),
+            .padding(vertical = 5.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = tint,
-                modifier = Modifier.size(20.dp)
-            )
-            if (isActive) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 4.dp, y = (-2).dp)
-                        .size(5.dp)
-                        .clip(CircleShape)
-                        .background(activeColor)
-                )
-            }
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier.size(19.dp)
+        )
         Spacer(modifier = Modifier.height(3.dp))
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall.copy(
                 fontSize = 10.5.sp,
-                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium
+                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium
             ),
             color = tint,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        Box(
+            modifier = Modifier
+                .width(16.dp)
+                .height(2.5.dp)
+                .clip(CircleShape)
+                .background(if (isActive) activeColor else Color.Transparent)
         )
     }
 }

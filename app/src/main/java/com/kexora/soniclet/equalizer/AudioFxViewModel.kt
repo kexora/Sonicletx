@@ -541,25 +541,22 @@ internal class AudioFxViewModel(
         } catch (_: Exception) {}
     }
 
-    // OFFLINE LYRICS & TIME-SYNCED KARAOKE ENGINE
+    // OFFLINE LYRICS & HIGH-PRECISION TIME-SYNCED KARAOKE ENGINE
     fun loadLyricsForSong(song: Song) {
         scope.launch(Dispatchers.IO) {
-            vm._uiState.update { it.copy(isLyricsLoading = true) }
+            val savedOffset = LyricsUtil.getSyncOffsetMs(vm.context, song.id)
+            vm._uiState.update { it.copy(isLyricsLoading = true, lyricsSyncOffsetMs = savedOffset) }
             val result = LyricsUtil.getLyrics(vm.context, song)
             if (result != null && result.lines.isNotEmpty()) {
-                val curPos = vm.currentPosition.value + vm._uiState.value.lyricsSyncOffsetMs
-                var activeIdx = -1
-                for (i in result.lines.indices) {
-                    if (result.lines[i].timeMs <= curPos) {
-                        activeIdx = i
-                    } else break
-                }
+                val curPos = vm.currentPosition.value + savedOffset
+                val activeIdx = LyricsUtil.findActiveLyricIndex(result.lines, curPos)
                 vm._uiState.update {
                     it.copy(
                         currentLyrics = result.lines,
                         lyricsSourceType = result.source,
+                        lyricsSyncOffsetMs = savedOffset,
                         isLyricsLoading = false,
-                        activeLyricIndex = activeIdx.coerceAtLeast(0)
+                        activeLyricIndex = activeIdx
                     )
                 }
             } else {
@@ -567,6 +564,7 @@ internal class AudioFxViewModel(
                     it.copy(
                         currentLyrics = emptyList(),
                         lyricsSourceType = "",
+                        lyricsSyncOffsetMs = savedOffset,
                         isLyricsLoading = false,
                         activeLyricIndex = -1
                     )
@@ -591,14 +589,33 @@ internal class AudioFxViewModel(
     }
 
     fun adjustLyricsOffset(deltaMs: Long) {
-        vm._uiState.update {
-            val newOffset = (it.lyricsSyncOffsetMs + deltaMs).coerceIn(-15000L, 15000L)
-            it.copy(lyricsSyncOffsetMs = newOffset)
+        val currentSongId = vm._uiState.value.currentSong?.id
+        vm._uiState.update { state ->
+            val newOffset = (state.lyricsSyncOffsetMs + deltaMs).coerceIn(-15000L, 15000L)
+            if (currentSongId != null) {
+                LyricsUtil.saveSyncOffsetMs(vm.context, currentSongId, newOffset)
+            }
+            val effectivePos = vm.currentPosition.value + newOffset
+            val newIdx = LyricsUtil.findActiveLyricIndex(state.currentLyrics, effectivePos)
+            state.copy(
+                lyricsSyncOffsetMs = newOffset,
+                activeLyricIndex = newIdx
+            )
         }
     }
 
     fun resetLyricsOffset() {
-        vm._uiState.update { it.copy(lyricsSyncOffsetMs = 0L) }
+        val currentSongId = vm._uiState.value.currentSong?.id
+        if (currentSongId != null) {
+            LyricsUtil.saveSyncOffsetMs(vm.context, currentSongId, 0L)
+        }
+        vm._uiState.update { state ->
+            val newIdx = LyricsUtil.findActiveLyricIndex(state.currentLyrics, vm.currentPosition.value)
+            state.copy(
+                lyricsSyncOffsetMs = 0L,
+                activeLyricIndex = newIdx
+            )
+        }
     }
 
     fun toggleKaraokeMode() {

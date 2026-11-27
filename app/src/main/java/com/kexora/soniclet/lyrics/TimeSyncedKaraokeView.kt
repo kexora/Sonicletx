@@ -1,18 +1,25 @@
 package com.kexora.soniclet.lyrics
 
 import android.net.Uri
+import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,18 +30,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kexora.soniclet.player.LyricLine
-import com.kexora.soniclet.player.LyricWord
+import kotlinx.coroutines.delay
+import java.util.Locale
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -55,12 +67,58 @@ fun TimeSyncedKaraokeView(
     onToggleKaraokeMode: () -> Unit,
     onImportLyrics: (Uri) -> Unit,
     onClearCustomLyrics: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isPlaying: Boolean = true,
+    onReturnToArt: (() -> Unit)? = null
 ) {
-    val context = LocalContext.current
     val listState = rememberLazyListState()
-
     var showOffsetControls by remember { mutableStateOf(false) }
+
+    // Pause auto-scroll for 3 seconds whenever the user manually scrolls
+    var isUserScrolling by remember { mutableStateOf(false) }
+    var lastUserScrollReleaseMs by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            isUserScrolling = true
+        } else if (isUserScrolling) {
+            val releasedAt = SystemClock.elapsedRealtime()
+            lastUserScrollReleaseMs = releasedAt
+            delay(3000L)
+            if (lastUserScrollReleaseMs == releasedAt) {
+                isUserScrolling = false
+            }
+        }
+    }
+
+    // 50ms high-frequency monotonic interpolation between Media3 position syncs
+    var basePositionMs by remember { mutableLongStateOf(currentPosition) }
+    var baseElapsedMs by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    var smoothPositionMs by remember { mutableLongStateOf(currentPosition) }
+
+    LaunchedEffect(currentPosition) {
+        basePositionMs = currentPosition
+        baseElapsedMs = SystemClock.elapsedRealtime()
+        smoothPositionMs = currentPosition
+    }
+
+    LaunchedEffect(isPlaying, lyrics.isNotEmpty()) {
+        if (isPlaying && lyrics.isNotEmpty()) {
+            while (true) {
+                val delta = (SystemClock.elapsedRealtime() - baseElapsedMs).coerceIn(0L, 180L)
+                smoothPositionMs = basePositionMs + delta
+                delay(50L)
+            }
+        } else {
+            smoothPositionMs = currentPosition
+        }
+    }
+
+    val effectivePositionMs = smoothPositionMs + syncOffsetMs
+    val resolvedActiveIndex = remember(lyrics, effectivePositionMs, activeLyricIndex) {
+        if (lyrics.isEmpty()) -1
+        else LyricsUtil.findActiveLyricIndex(lyrics, effectivePositionMs)
+    }
 
     // System File Picker to select local offline .lrc file
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -71,356 +129,397 @@ fun TimeSyncedKaraokeView(
         }
     }
 
-    // Auto-scroll physics to keep active karaoke line centered
-    LaunchedEffect(activeLyricIndex) {
-        if (activeLyricIndex in lyrics.indices) {
-            listState.animateScrollToItem(
-                index = activeLyricIndex,
-                scrollOffset = -220
-            )
+    // Smooth center auto-scroll using live viewport height (respects 3s manual scroll pause)
+    LaunchedEffect(resolvedActiveIndex, isUserScrolling) {
+        if (!isUserScrolling && resolvedActiveIndex in lyrics.indices) {
+            val viewportHeight = listState.layoutInfo.viewportSize.height
+            val centerOffset = if (viewportHeight > 0) -(viewportHeight / 2) + 48 else -180
+            try {
+                listState.animateScrollToItem(
+                    index = resolvedActiveIndex,
+                    scrollOffset = centerOffset
+                )
+            } catch (_: Exception) {
+            }
         }
     }
 
-    val activeHighlightColor = if (isKariModeEnabled) dominantColor else MaterialTheme.colorScheme.primary
-    val secondaryHighlightColor = if (isKariModeEnabled) vibrantColor else MaterialTheme.colorScheme.tertiary
+    val activeAccent = if (isKariModeEnabled) vibrantColor else MaterialTheme.colorScheme.primary
+    val pillFill = Color.White.copy(alpha = 0.09f)
+    val pillBorder = Color.White.copy(alpha = 0.14f)
+    val offsetSecondsFormatted = remember(syncOffsetMs) {
+        String.format(Locale.US, "%+.1fs", syncOffsetMs / 1000.0)
+    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // TOP KARAOKE TOOLBAR
+        // SINGLE CLEAN NON-COLLIDING TOP PILL ROW:
+        // [Sync] [Karaoke] [Import]  <--- weight(1f) --->  [Art]
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(horizontal = 2.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Source badge (e.g. Offline .LRC, Embedded Tag, Imported)
+            // 1. Sync Offset Pill
+            val isOffsetActive = syncOffsetMs != 0L || showOffsetControls
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                modifier = Modifier.height(32.dp)
+                color = if (isOffsetActive) activeAccent.copy(alpha = 0.22f) else pillFill,
+                border = BorderStroke(0.6.dp, if (isOffsetActive) activeAccent.copy(alpha = 0.55f) else pillBorder),
+                modifier = Modifier
+                    .height(30.dp)
+                    .clip(CircleShape)
+                    .clickable { showOffsetControls = !showOffsetControls }
+                    .testTag("lyrics_sync_pill")
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(
-                        imageVector = if (lyricsSourceType.contains("Imported", true)) Icons.Rounded.FileUpload
-                        else if (lyricsSourceType.contains("Embedded", true)) Icons.Rounded.MusicNote
-                        else Icons.Rounded.Description,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = activeHighlightColor
+                        imageVector = Icons.Rounded.Tune,
+                        contentDescription = "Sync Offset",
+                        modifier = Modifier.size(13.dp),
+                        tint = if (isOffsetActive) activeAccent else Color.White.copy(alpha = 0.85f)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (lyrics.isEmpty()) "No Lyrics" else lyricsSourceType.ifEmpty { "Offline .LRC" },
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = if (syncOffsetMs == 0L) "Sync" else offsetSecondsFormatted,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        color = if (isOffsetActive) activeAccent else Color.White,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Offset calibration button
-                Surface(
-                    shape = CircleShape,
-                    color = if (syncOffsetMs != 0L) activeHighlightColor.copy(alpha = 0.2f)
-                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                    modifier = Modifier
-                        .height(32.dp)
-                        .clip(CircleShape)
-                        .clickable { showOffsetControls = !showOffsetControls }
+            // 2. Karaoke Mode Toggle Pill
+            Surface(
+                shape = CircleShape,
+                color = if (isKaraokeModeEnabled) activeAccent.copy(alpha = 0.22f) else pillFill,
+                border = BorderStroke(0.6.dp, if (isKaraokeModeEnabled) activeAccent.copy(alpha = 0.55f) else pillBorder),
+                modifier = Modifier
+                    .height(30.dp)
+                    .clip(CircleShape)
+                    .clickable { onToggleKaraokeMode() }
+                    .testTag("lyrics_karaoke_pill")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Tune,
-                            contentDescription = "Sync Calibration",
-                            modifier = Modifier.size(14.dp),
-                            tint = if (syncOffsetMs != 0L) activeHighlightColor else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (syncOffsetMs == 0L) "Sync" else "%+d ms".format(syncOffsetMs),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (syncOffsetMs != 0L) activeHighlightColor else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Rounded.Mic,
+                        contentDescription = "Karaoke Mode",
+                        modifier = Modifier.size(13.dp),
+                        tint = if (isKaraokeModeEnabled) activeAccent else Color.White.copy(alpha = 0.78f)
+                    )
+                    Text(
+                        text = if (isKaraokeModeEnabled) "Karaoke" else "Line",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = if (isKaraokeModeEnabled) activeAccent else Color.White.copy(alpha = 0.85f),
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
+            }
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Word-by-Word Karaoke Toggle
-                Surface(
-                    shape = CircleShape,
-                    color = if (isKaraokeModeEnabled) activeHighlightColor.copy(alpha = 0.25f)
-                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                    modifier = Modifier
-                        .height(32.dp)
-                        .clip(CircleShape)
-                        .clickable { onToggleKaraokeMode() }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Mic,
-                            contentDescription = "Karaoke Mode",
-                            modifier = Modifier.size(14.dp),
-                            tint = if (isKaraokeModeEnabled) activeHighlightColor else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (isKaraokeModeEnabled) "Karaoke ON" else "Line Sync",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isKaraokeModeEnabled) activeHighlightColor else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                // Import / Pick file button
-                IconButton(
-                    onClick = { filePickerLauncher.launch("*/*") },
-                    modifier = Modifier.size(32.dp)
-                ) {
+            // 3. Import .LRC Circle Icon Pill
+            Surface(
+                shape = CircleShape,
+                color = pillFill,
+                border = BorderStroke(0.6.dp, pillBorder),
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .clickable { filePickerLauncher.launch("*/*") }
+                    .testTag("lyrics_import_icon_pill")
+            ) {
+                Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Rounded.FolderOpen,
                         contentDescription = "Import .LRC file",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
+                        tint = Color.White.copy(alpha = 0.88f),
+                        modifier = Modifier.size(15.dp)
                     )
                 }
             }
-        }
 
-        // SYNC OFFSET CALIBRATION BAR (EXPANDABLE)
-        AnimatedVisibility(visible = showOffsetControls) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Row(
+            Spacer(modifier = Modifier.weight(1f))
+
+            // 4. Optional Return-to-Art Pill (anchored cleanly on far right with ZERO collision)
+            if (onReturnToArt != null) {
+                Surface(
+                    shape = CircleShape,
+                    color = pillFill,
+                    border = BorderStroke(0.6.dp, pillBorder),
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .height(30.dp)
+                        .clip(CircleShape)
+                        .clickable { onReturnToArt() }
+                        .testTag("inline_lyrics_close_pill")
                 ) {
-                    Text(
-                        text = "Offset: %+d ms".format(syncOffsetMs),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        FilledTonalButton(
-                            onClick = { onAdjustOffset(-500L) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("-0.5s", style = MaterialTheme.typography.labelSmall)
-                        }
-                        FilledTonalButton(
-                            onClick = { onAdjustOffset(-100L) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("-0.1s", style = MaterialTheme.typography.labelSmall)
-                        }
-                        FilledTonalButton(
-                            onClick = onResetOffset,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("Reset", style = MaterialTheme.typography.labelSmall)
-                        }
-                        FilledTonalButton(
-                            onClick = { onAdjustOffset(100L) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("+0.1s", style = MaterialTheme.typography.labelSmall)
-                        }
-                        FilledTonalButton(
-                            onClick = { onAdjustOffset(500L) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("+0.5s", style = MaterialTheme.typography.labelSmall)
-                        }
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Album,
+                            contentDescription = "Show Cover Art",
+                            tint = Color.White,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = "Art",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = Color.White,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        // COMPACT INLINE SYNC OFFSET PILL BAR
+        AnimatedVisibility(
+            visible = showOffsetControls,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SyncOffsetStepPill("-0.5s") { onAdjustOffset(-500L) }
+                SyncOffsetStepPill("-0.1s") { onAdjustOffset(-100L) }
 
-        // MAIN LYRICS CONTENT
+                Surface(
+                    shape = CircleShape,
+                    color = activeAccent.copy(alpha = 0.16f),
+                    border = BorderStroke(0.6.dp, activeAccent.copy(alpha = 0.45f)),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = offsetSecondsFormatted,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            color = activeAccent
+                        )
+                    }
+                }
+
+                SyncOffsetStepPill("+0.1s") { onAdjustOffset(100L) }
+                SyncOffsetStepPill("+0.5s") { onAdjustOffset(500L) }
+                SyncOffsetStepPill("Reset", isAccent = syncOffsetMs != 0L, accentColor = activeAccent) {
+                    onResetOffset()
+                }
+            }
+        }
+
+        // MAIN LYRICS CONTENT (COMPLETELY BOX-FREE DIRECTLY OVER BLURRED BACKDROP)
         if (isLyricsLoading) {
             com.kexora.soniclet.ui.components.common.SkeletonLyricsView()
         } else if (lyrics.isEmpty()) {
-            // EMPTY STATE: No lyrics found
-            Box(
+            // Box-Free Floating Empty State
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp),
-                contentAlignment = Alignment.Center
+                    .padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    modifier = Modifier.fillMaxWidth(0.92f)
+                Icon(
+                    imageVector = Icons.Rounded.Lyrics,
+                    contentDescription = null,
+                    tint = activeAccent.copy(alpha = 0.90f),
+                    modifier = Modifier.size(44.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "No Synced Lyrics",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = Color.White,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Add a local .lrc file or embed synced lyrics in ID3 Studio.",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                    color = Color.White.copy(alpha = 0.62f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 2
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = { filePickerLauncher.launch("*/*") },
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = activeAccent,
+                        contentColor = Color(0xFF06100B)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 9.dp),
+                    modifier = Modifier
+                        .height(38.dp)
+                        .testTag("lyrics_empty_import_btn")
                 ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Lyrics,
-                            contentDescription = null,
-                            tint = activeHighlightColor,
-                            modifier = Modifier.size(54.dp)
+                    Icon(
+                        imageVector = Icons.Rounded.FileUpload,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Import .LRC",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "No Synchronized Lyrics Found",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Place an offline .lrc file in the same folder as the song, or tap below to pick a .lrc file.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Button(
-                            onClick = { filePickerLauncher.launch("*/*") },
-                            colors = ButtonDefaults.buttonColors(containerColor = activeHighlightColor)
-                        ) {
-                            Icon(Icons.Rounded.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Import Offline .LRC")
-                        }
-                    }
+                    )
                 }
             }
         } else {
-            // SCROLLABLE KARAOKE LYRICS LIST
-            val effectivePosition = currentPosition + syncOffsetMs
-
+            // Box-Free Apple Music / Spotify-Style Synced Lyrics List with Top & Bottom Edge Fade
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 4.dp),
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        if (size.height > 0f) {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    0.0f to Color.Transparent,
+                                    0.09f to Color.Black,
+                                    0.89f to Color.Black,
+                                    1.0f to Color.Transparent
+                                ),
+                                blendMode = BlendMode.DstIn
+                            )
+                        }
+                    },
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(vertical = 40.dp)
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+                contentPadding = PaddingValues(top = 48.dp, bottom = 72.dp, start = 8.dp, end = 8.dp)
             ) {
-                itemsIndexed(lyrics) { idx, lyric ->
-                    val isActive = idx == activeLyricIndex
-                    val isPast = idx < activeLyricIndex
+                itemsIndexed(
+                    items = lyrics,
+                    key = { idx, item -> "${item.timeMs}_$idx" }
+                ) { idx, lyric ->
+                    val isActive = idx == resolvedActiveIndex
+                    val targetSeekMs = (lyric.timeMs - syncOffsetMs).coerceAtLeast(0L)
+                    val scale by animateFloatAsState(
+                        targetValue = if (isActive) 1.03f else 0.97f,
+                        animationSpec = tween(220),
+                        label = "lyric_line_scale"
+                    )
 
-                    if (isActive) {
-                        // ACTIVE KARAOKE LINE (CONTAINER WITH WORD-BY-WORD PROGRESSION)
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = activeHighlightColor.copy(alpha = 0.12f),
-                            border = borderActive(activeHighlightColor),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSeekTo(lyric.timeMs) }
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                if (isKaraokeModeEnabled && lyric.words.isNotEmpty()) {
-                                    // WORD-BY-WORD KARAOKE HIGHLIGHT
-                                    FlowRow(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.Center,
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        lyric.words.forEach { word ->
-                                            val progress = when {
-                                                effectivePosition <= word.startMs -> 0f
-                                                effectivePosition >= word.endMs -> 1f
-                                                else -> {
-                                                    val range = (word.endMs - word.startMs).coerceAtLeast(1L).toFloat()
-                                                    ((effectivePosition - word.startMs).toFloat() / range).coerceIn(0f, 1f)
-                                                }
-                                            }
-
-                                            KaraokeWordText(
-                                                word = word.text,
-                                                progress = progress,
-                                                activeColor = activeHighlightColor,
-                                                inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
-                                                fontSize = 21.sp
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    // STANDARD FULL-LINE HIGHLIGHT
-                                    Text(
-                                        text = lyric.text,
-                                        style = MaterialTheme.typography.titleLarge.copy(
-                                            fontSize = 21.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        ),
-                                        color = activeHighlightColor,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable {
+                                isUserScrolling = false
+                                onSeekTo(targetSeekMs)
                             }
-                        }
-                    } else {
-                        // INACTIVE LINES (PAST OR UPCOMING)
-                        val textColor = if (isPast) {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                        }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isActive) {
+                            if (isKaraokeModeEnabled && lyric.words.isNotEmpty()) {
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    lyric.words.forEach { word ->
+                                        val progress = when {
+                                            effectivePositionMs <= word.startMs -> 0f
+                                            effectivePositionMs >= word.endMs -> 1f
+                                            else -> {
+                                                val range = (word.endMs - word.startMs).coerceAtLeast(1L).toFloat()
+                                                ((effectivePositionMs - word.startMs).toFloat() / range).coerceIn(0f, 1f)
+                                            }
+                                        }
 
-                        Text(
-                            text = lyric.text,
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                fontSize = 16.sp,
-                                fontWeight = if (isPast) FontWeight.Normal else FontWeight.Medium
-                            ),
-                            color = textColor,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { onSeekTo(lyric.timeMs) }
-                                .padding(horizontal = 16.dp, vertical = 6.dp)
-                        )
+                                        KaraokeWordText(
+                                            word = word.text,
+                                            progress = progress,
+                                            activeColor = Color.White,
+                                            glowColor = activeAccent,
+                                            inactiveColor = Color.White.copy(alpha = 0.42f),
+                                            fontSize = 21.sp
+                                        )
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = lyric.text,
+                                    style = MaterialTheme.typography.titleLarge.copy(
+                                        fontSize = 21.sp,
+                                        lineHeight = 28.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        shadow = Shadow(
+                                            color = activeAccent.copy(alpha = 0.50f),
+                                            offset = Offset(0f, 0f),
+                                            blurRadius = 18f
+                                        )
+                                    ),
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = lyric.text,
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = 17.sp,
+                                    lineHeight = 23.sp,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                color = Color.White.copy(alpha = 0.38f),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
             }
@@ -428,63 +527,95 @@ fun TimeSyncedKaraokeView(
     }
 }
 
+@Composable
+private fun SyncOffsetStepPill(
+    label: String,
+    isAccent: Boolean = false,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = CircleShape,
+        color = if (isAccent) accentColor.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.08f),
+        border = BorderStroke(
+            0.6.dp,
+            if (isAccent) accentColor.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.14f)
+        ),
+        modifier = Modifier
+            .height(28.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFeatureSettings = "tnum"
+                ),
+                color = if (isAccent) accentColor else Color.White.copy(alpha = 0.90f)
+            )
+        }
+    }
+}
+
 /**
- * Individual Word in Karaoke Mode:
- * If progress == 0f: Dimmed text.
- * If progress == 1f: Full glowing highlighted text.
- * If progress in 0f..1f: Sweeping clipRect across word letters from left to right!
+ * Individual Word in Karaoke Mode with progressive left-to-right luminous sweep.
  */
 @Composable
 private fun KaraokeWordText(
     word: String,
     progress: Float,
     activeColor: Color,
+    glowColor: Color,
     inactiveColor: Color,
     fontSize: TextUnit,
     modifier: Modifier = Modifier
 ) {
+    val activeStyle = MaterialTheme.typography.titleLarge.copy(
+        fontSize = fontSize,
+        lineHeight = 28.sp,
+        fontWeight = FontWeight.Bold,
+        shadow = Shadow(
+            color = glowColor.copy(alpha = 0.55f),
+            offset = Offset(0f, 0f),
+            blurRadius = 16f
+        )
+    )
+    val inactiveStyle = MaterialTheme.typography.titleLarge.copy(
+        fontSize = fontSize,
+        lineHeight = 28.sp,
+        fontWeight = FontWeight.SemiBold
+    )
+
     if (progress <= 0f) {
         Text(
             text = word,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = fontSize,
-                fontWeight = FontWeight.Medium
-            ),
+            style = inactiveStyle,
             color = inactiveColor,
-            modifier = modifier.padding(horizontal = 2.dp)
+            modifier = modifier.padding(horizontal = 2.5.dp)
         )
     } else if (progress >= 1f) {
         Text(
             text = word,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = fontSize,
-                fontWeight = FontWeight.ExtraBold
-            ),
+            style = activeStyle,
             color = activeColor,
-            modifier = modifier.padding(horizontal = 2.dp)
+            modifier = modifier.padding(horizontal = 2.5.dp)
         )
     } else {
-        // ACTIVELY SINGING WORD: Dual layer with clipRect progressive sweep
-        Box(
-            modifier = modifier.padding(horizontal = 2.dp)
-        ) {
-            // Background inactive text
+        Box(modifier = modifier.padding(horizontal = 2.5.dp)) {
             Text(
                 text = word,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = fontSize,
-                    fontWeight = FontWeight.Medium
-                ),
+                style = inactiveStyle,
                 color = inactiveColor
             )
-
-            // Foreground sweeping active text
             Text(
                 text = word,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = fontSize,
-                    fontWeight = FontWeight.ExtraBold
-                ),
+                style = activeStyle,
                 color = activeColor,
                 modifier = Modifier.drawWithContent {
                     clipRect(
@@ -499,18 +630,4 @@ private fun KaraokeWordText(
             )
         }
     }
-}
-
-@Composable
-private fun borderActive(color: Color): androidx.compose.foundation.BorderStroke {
-    return androidx.compose.foundation.BorderStroke(
-        width = 1.dp,
-        brush = Brush.horizontalGradient(
-            listOf(
-                color.copy(alpha = 0.2f),
-                color.copy(alpha = 0.7f),
-                color.copy(alpha = 0.2f)
-            )
-        )
-    )
 }

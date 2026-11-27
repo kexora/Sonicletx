@@ -77,11 +77,40 @@ import com.kexora.soniclet.library.ShuffleMode
 import kotlin.math.sin
 import com.kexora.soniclet.ui.components.player.FallbackAlbumArt
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
 import androidx.palette.graphics.Palette
 import coil.imageLoader
 import coil.request.SuccessResult
 import android.graphics.drawable.BitmapDrawable
+import com.kexora.soniclet.lyrics.TimeSyncedKaraokeView
+import com.kexora.soniclet.player.MusicUiState
+import com.kexora.soniclet.player.MusicViewModel
+import com.kexora.soniclet.player.PlayQueue
+import com.kexora.soniclet.utils.ArtistParserUtil
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -488,3 +517,292 @@ fun AnimatedWaveformVisualizer(
         )
     }
 }
+
+/**
+ * Partial-Height Slide-Up Up Next & Lyrics Sheet (occupies max 74% height, leaving ~26% of
+ * the blurred Now Playing backdrop visible behind a dark dim scrim with zero text bleed-through).
+ */
+@Composable
+fun PlayerQueueLyricsSheet(
+    visible: Boolean,
+    selectedTab: Int,
+    onSelectTab: (Int) -> Unit,
+    song: Song,
+    uiState: MusicUiState,
+    viewModel: MusicViewModel,
+    currentPosition: Long,
+    animatedDominant: Color,
+    animatedVibrant: Color,
+    onDismissSheet: () -> Unit,
+    onDismissPlayer: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val sheetSurfaceColor = Color(0xFF0D1310).copy(alpha = 0.98f)
+    var sheetDragOffsetY by remember { mutableFloatStateOf(0f) }
+    val animatedSheetOffsetY by animateFloatAsState(
+        targetValue = sheetDragOffsetY,
+        animationSpec = spring(
+            dampingRatio = 0.86f,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "partial_queue_sheet_offset"
+    )
+
+    LaunchedEffect(visible) {
+        if (visible) sheetDragOffsetY = 0f
+    }
+
+    BackHandler(enabled = visible) {
+        onDismissSheet()
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = tween(180)),
+        exit = fadeOut(animationSpec = tween(180)),
+        modifier = modifier.fillMaxSize()
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Dark dim scrim covering top ~26% of player; tapping dismisses sheet
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.60f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismissSheet
+                    )
+            )
+
+            // Partial-Height Frosted Opaque Sheet (74% max height)
+            AnimatedVisibility(
+                visible = visible,
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = spring(
+                        dampingRatio = 0.88f,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ),
+                exit = slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = spring(
+                        dampingRatio = 0.92f,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.74f)
+                    .align(Alignment.BottomCenter)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .offset {
+                            IntOffset(0, animatedSheetOffsetY.toInt().coerceAtLeast(0))
+                        }
+                        .testTag("partial_queue_lyrics_sheet"),
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                    color = sheetSurfaceColor,
+                    tonalElevation = 0.dp,
+                    border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.10f))
+                ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // Drag-down header zone with pill handle + segmented switcher
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pointerInput(Unit) {
+                                    detectVerticalDragGestures(
+                                        onDragEnd = {
+                                            if (sheetDragOffsetY > 90f) {
+                                                onDismissSheet()
+                                                sheetDragOffsetY = 0f
+                                            } else {
+                                                sheetDragOffsetY = 0f
+                                            }
+                                        },
+                                        onDragCancel = { sheetDragOffsetY = 0f },
+                                        onVerticalDrag = { change, dragAmount ->
+                                            if (dragAmount > 0 || sheetDragOffsetY > 0) {
+                                                change.consume()
+                                                sheetDragOffsetY = (sheetDragOffsetY + dragAmount).coerceAtLeast(0f)
+                                            }
+                                        }
+                                    )
+                                }
+                                .padding(top = 10.dp, bottom = 8.dp, start = 12.dp, end = 12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(36.dp)
+                                    .height(4.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.25f))
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        sheetDragOffsetY = 0f
+                                        onDismissSheet()
+                                    },
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .testTag("partial_sheet_collapse_btn")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.KeyboardArrowDown,
+                                        contentDescription = "Collapse Sheet",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+
+                                // Centered CircleShape Segmented Pill Switcher (UP NEXT | LYRICS)
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color.White.copy(alpha = 0.08f),
+                                    border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.12f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(3.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        val tabs = listOf("UP NEXT", "LYRICS")
+                                        tabs.forEachIndexed { index, title ->
+                                            val isSelected = selectedTab == index
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(CircleShape)
+                                                    .background(
+                                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                                                        else Color.Transparent
+                                                    )
+                                                    .clickable { onSelectTab(index) }
+                                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = title,
+                                                    style = MaterialTheme.typography.labelMedium.copy(
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                        fontSize = 11.5.sp,
+                                                        letterSpacing = 0.7.sp
+                                                    ),
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.65f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        if (selectedTab == 0) viewModel.toggleShuffle()
+                                        else viewModel.loadLyricsForSong(song)
+                                    },
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (selectedTab == 0) {
+                                            Icons.Rounded.Shuffle
+                                        } else {
+                                            Icons.Rounded.Refresh
+                                        },
+                                        contentDescription = if (selectedTab == 0) "Shuffle Queue" else "Reload Lyrics",
+                                        tint = Color.White.copy(alpha = 0.78f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            thickness = 0.5.dp,
+                            color = Color.White.copy(alpha = 0.10f)
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
+                            if (selectedTab == 0) {
+                                PlayQueue(
+                                    activeQueue = uiState.activeQueue,
+                                    queueSourceTitle = uiState.queueSourceTitle,
+                                    currentSong = song,
+                                    isPlaying = uiState.isPlaying,
+                                    onPlaySong = { viewModel.playSong(it) },
+                                    onTogglePlayPause = { viewModel.togglePlayPause() },
+                                    onRemoveFromQueue = { viewModel.removeFromQueue(it) },
+                                    onMoveQueueItemToNext = { viewModel.moveQueueItemToNext(it) },
+                                    onMoveQueueItemToBottom = { viewModel.moveQueueItemToBottom(it) },
+                                    onReorderQueueItem = { from, to -> viewModel.reorderQueueItem(from, to) },
+                                    onToggleFavorite = { viewModel.toggleFavorite(it) },
+                                    onClearQueue = { viewModel.clearQueue() },
+                                    onToggleShuffle = { viewModel.toggleShuffle() },
+                                    favoriteSongIds = uiState.favoriteSongIds,
+                                    actuallyPlayedSongIds = uiState.actuallyPlayedSongIds,
+                                    playbackPositions = uiState.playbackPositions,
+                                    onNavigateToArtist = { artistName ->
+                                        val allS = uiState.allSongsList.ifEmpty { uiState.songList }
+                                        val matchingSongs = allS.filter { s ->
+                                            ArtistParserUtil.splitArtists(s.artist, s.title)
+                                                .any { it.equals(artistName, ignoreCase = true) }
+                                        }
+                                        viewModel.openCategory(artistName, "ARTIST", matchingSongs)
+                                        onDismissPlayer()
+                                    },
+                                    isEmbeddedInSheet = true,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                LaunchedEffect(song.id) {
+                                    if (uiState.currentLyrics.isEmpty()) {
+                                        viewModel.loadLyricsForSong(song)
+                                    }
+                                }
+                                TimeSyncedKaraokeView(
+                                    lyrics = uiState.currentLyrics,
+                                    activeLyricIndex = uiState.activeLyricIndex,
+                                    currentPosition = currentPosition,
+                                    syncOffsetMs = uiState.lyricsSyncOffsetMs,
+                                    isKaraokeModeEnabled = uiState.isKaraokeModeEnabled,
+                                    lyricsSourceType = uiState.lyricsSourceType,
+                                    isLyricsLoading = uiState.isLyricsLoading,
+                                    isKariModeEnabled = uiState.isKariModeEnabled,
+                                    dominantColor = animatedDominant,
+                                    vibrantColor = animatedVibrant,
+                                    onSeekTo = { pos -> viewModel.seekTo(pos) },
+                                    onAdjustOffset = { delta -> viewModel.adjustLyricsOffset(delta) },
+                                    onResetOffset = { viewModel.resetLyricsOffset() },
+                                    onToggleKaraokeMode = { viewModel.toggleKaraokeMode() },
+                                    onImportLyrics = { uri -> viewModel.importLyricsFromUri(song, uri) },
+                                    onClearCustomLyrics = { viewModel.clearImportedLyrics(song) },
+                                    isPlaying = uiState.isPlaying,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .navigationBarsPadding()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

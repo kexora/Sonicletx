@@ -165,9 +165,9 @@ fun Dhun(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    // Tactile pause scale-down (0.93f) & spring back to 1.0f when playing
+    // Tactile pause scale-down (0.94f) & spring back to 1.0f when playing
     val artScale by animateFloatAsState(
-        targetValue = if (isPlaying) 1.0f else 0.93f,
+        targetValue = if (isPlaying) 1.0f else 0.94f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
@@ -227,7 +227,8 @@ fun Dhun(
         modifier = Modifier
             .fillMaxSize()
             .offset { IntOffset(0, sheetOffsetY.value.roundToInt()) }
-            .background(MaterialTheme.colorScheme.background)
+            .background(Color(0xFF070B09))
+            .pointerInput(Unit) {}
     ) {
         DhunArtBackdrop(
             song = song,
@@ -257,14 +258,12 @@ fun Dhun(
 
             val playButtonSize = when {
                 isVeryCompactHeight -> 58.dp
-                isCompactHeight -> 64.dp
-                else -> 68.dp
+                else -> 64.dp
             }
 
             val playIconSize = when {
                 isVeryCompactHeight -> 30.dp
-                isCompactHeight -> 34.dp
-                else -> 36.dp
+                else -> 34.dp
             }
 
             val skipButtonSize = when {
@@ -314,7 +313,8 @@ fun Dhun(
                                     onResetOffset = { viewModel.resetLyricsOffset() },
                                     onToggleKaraokeMode = { viewModel.toggleKaraokeMode() },
                                     onImportLyrics = { uri -> viewModel.importLyricsFromUri(song, uri) },
-                                    onClearCustomLyrics = { viewModel.clearImportedLyrics(song) }
+                                    onClearCustomLyrics = { viewModel.clearImportedLyrics(song) },
+                                    isPlaying = isPlaying
                                 )
                             } else {
                                 DhunLandscapeArtCard(
@@ -463,12 +463,12 @@ fun Dhun(
                             )
                         }
 
-                        // Edge-to-edge Top Navigation Bar
+                        // Clean Edge-to-Edge Top Navigation Bar (Collapse • PLAYING FROM • More Options Pill)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .then(sheetDragModifier)
-                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                                .padding(horizontal = 10.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(
@@ -480,7 +480,7 @@ fun Dhun(
                                 Icon(
                                     imageVector = Icons.Rounded.KeyboardArrowDown,
                                     contentDescription = "Collapse player",
-                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    tint = Color.White,
                                     modifier = Modifier.size(30.dp)
                                 )
                             }
@@ -488,7 +488,7 @@ fun Dhun(
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .padding(horizontal = 4.dp),
+                                    .padding(horizontal = 6.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
@@ -498,7 +498,7 @@ fun Dhun(
                                         fontWeight = FontWeight.SemiBold,
                                         letterSpacing = 1.1.sp
                                     ),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                    color = Color.White.copy(alpha = 0.62f),
                                     maxLines = 1
                                 )
                                 Text(
@@ -507,39 +507,36 @@ fun Dhun(
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.SemiBold
                                     ),
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                    color = Color.White,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     textAlign = TextAlign.Center
                                 )
                             }
 
-                            IconButton(
-                                onClick = { isInlineLyricsVisible = !isInlineLyricsVisible },
+                            Box(
                                 modifier = Modifier
-                                    .size(44.dp)
-                                    .testTag("now_playing_top_lyrics_btn")
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .clickable { showMoreOptionsSheet = true }
+                                    .testTag("now_playing_more_btn"),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Lyrics,
-                                    contentDescription = "Toggle Lyrics",
-                                    tint = if (isInlineLyricsVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { showMoreOptionsSheet = true },
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .testTag("now_playing_more_btn")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.MoreVert,
-                                    contentDescription = "More options",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(24.dp)
-                                )
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color.White.copy(alpha = 0.08f),
+                                    border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.14f)),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.MoreVert,
+                                            contentDescription = "More options",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -614,29 +611,31 @@ fun Dhun(
                                                 viewModel.openCategoryAndClosePlayer(artistName, "ARTIST", matchingSongs)
                                             },
                                             shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.50f),
-                                            border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f))
+                                            color = Color.White.copy(alpha = 0.08f),
+                                            border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.14f)),
+                                            modifier = Modifier.height(34.dp)
                                         ) {
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                modifier = Modifier.padding(horizontal = 12.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Rounded.Person,
                                                     contentDescription = null,
                                                     tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(13.dp)
+                                                    modifier = Modifier.size(14.dp)
                                                 )
-                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Spacer(modifier = Modifier.width(5.dp))
                                                 Text(
                                                     text = artistName,
                                                     style = MaterialTheme.typography.labelMedium.copy(
                                                         fontSize = 12.sp,
-                                                        fontWeight = FontWeight.SemiBold,
+                                                        fontWeight = FontWeight.Medium,
                                                         platformStyle = PlatformTextStyle(includeFontPadding = true)
                                                     ),
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                    maxLines = 1
+                                                    color = Color.White,
+                                                    maxLines = 1,
+                                                    softWrap = false
                                                 )
                                             }
                                         }
@@ -749,222 +748,21 @@ fun Dhun(
             }
         }
 
-        // Up Next & Lyrics Sliding Drawer
-        AnimatedVisibility(
+        // Partial-Height Slide-Up Up Next & Lyrics Sheet (max 74% height, opaque frosted surface)
+        PlayerQueueLyricsSheet(
             visible = isQueueDrawerExpanded,
-            enter = slideInVertically(
-                initialOffsetY = { it },
-                animationSpec = spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow)
-            ) + fadeIn(animationSpec = tween(150)),
-            exit = slideOutVertically(
-                targetOffsetY = { it },
-                animationSpec = spring(dampingRatio = 0.92f, stiffness = Spring.StiffnessMedium)
-            ) + fadeOut(animationSpec = tween(150)),
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(10f)
-        ) {
-            var sheetDragOffsetY by remember { mutableFloatStateOf(0f) }
-            val animatedSheetOffsetY by animateFloatAsState(
-                targetValue = sheetDragOffsetY,
-                animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium),
-                label = "queueSheetOffset"
-            )
-
-            LaunchedEffect(isQueueDrawerExpanded) {
-                if (isQueueDrawerExpanded) sheetDragOffsetY = 0f
-            }
-
-            BackHandler(enabled = isQueueDrawerExpanded) {
-                isQueueDrawerExpanded = false
-            }
-
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .offset { IntOffset(0, animatedSheetOffsetY.toInt().coerceAtLeast(0)) },
-                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-                color = Color(0xF70E1411),
-                tonalElevation = 0.dp,
-                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.10f))
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .pointerInput(Unit) {
-                                detectVerticalDragGestures(
-                                    onDragEnd = {
-                                        if (sheetDragOffsetY > 40f) {
-                                            isQueueDrawerExpanded = false
-                                            sheetDragOffsetY = 0f
-                                        } else {
-                                            sheetDragOffsetY = 0f
-                                        }
-                                    },
-                                    onDragCancel = { sheetDragOffsetY = 0f },
-                                    onVerticalDrag = { change, dragAmount ->
-                                        if (dragAmount > 0 || sheetDragOffsetY > 0) {
-                                            change.consume()
-                                            sheetDragOffsetY = (sheetDragOffsetY + dragAmount).coerceAtLeast(0f)
-                                        }
-                                    }
-                                )
-                            }
-                            .padding(top = 10.dp, bottom = 8.dp, start = 12.dp, end = 12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(36.dp)
-                                .height(4.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.25f))
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    sheetDragOffsetY = 0f
-                                    isQueueDrawerExpanded = false
-                                },
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.KeyboardArrowDown,
-                                    contentDescription = "Collapse Queue",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            }
-
-                            Surface(
-                                shape = CircleShape,
-                                color = Color.White.copy(alpha = 0.08f),
-                                modifier = Modifier.padding(vertical = 2.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(3.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    val tabs = listOf("UP NEXT", "LYRICS")
-                                    tabs.forEachIndexed { index, title ->
-                                        val isSelected = queueDrawerTab == index
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(CircleShape)
-                                                .background(
-                                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                                                    else Color.Transparent
-                                                )
-                                                .clickable { queueDrawerTab = index }
-                                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = title,
-                                                style = MaterialTheme.typography.labelMedium.copy(
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                    fontSize = 12.sp,
-                                                    letterSpacing = 0.6.sp
-                                                ),
-                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            IconButton(
-                                onClick = { viewModel.toggleShuffle() },
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Shuffle,
-                                    contentDescription = "Shuffle Queue",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(
-                        modifier = Modifier.fillMaxWidth(),
-                        thickness = 0.5.dp,
-                        color = Color.White.copy(alpha = 0.10f)
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    ) {
-                        if (queueDrawerTab == 0) {
-                            PlayQueue(
-                                activeQueue = uiState.activeQueue,
-                                queueSourceTitle = uiState.queueSourceTitle,
-                                currentSong = song,
-                                isPlaying = isPlaying,
-                                onPlaySong = { viewModel.playSong(it) },
-                                onTogglePlayPause = { viewModel.togglePlayPause() },
-                                onRemoveFromQueue = { viewModel.removeFromQueue(it) },
-                                onMoveQueueItemToNext = { viewModel.moveQueueItemToNext(it) },
-                                onMoveQueueItemToBottom = { viewModel.moveQueueItemToBottom(it) },
-                                onReorderQueueItem = { from, to -> viewModel.reorderQueueItem(from, to) },
-                                onToggleFavorite = { viewModel.toggleFavorite(it) },
-                                onClearQueue = { viewModel.clearQueue() },
-                                onToggleShuffle = { viewModel.toggleShuffle() },
-                                favoriteSongIds = uiState.favoriteSongIds,
-                                actuallyPlayedSongIds = uiState.actuallyPlayedSongIds,
-                                playbackPositions = uiState.playbackPositions,
-                                onNavigateToArtist = { artistName ->
-                                    val allS = uiState.allSongsList.ifEmpty { uiState.songList }
-                                    val matchingSongs = allS.filter { s ->
-                                        ArtistParserUtil.splitArtists(s.artist, s.title).any { it.equals(artistName, ignoreCase = true) }
-                                    }
-                                    viewModel.openCategory(artistName, "ARTIST", matchingSongs)
-                                    dismissSheet()
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            LaunchedEffect(song.id) {
-                                if (currentLyrics.isEmpty()) {
-                                    viewModel.loadLyricsForSong(song)
-                                }
-                            }
-                            TimeSyncedKaraokeView(
-                                lyrics = currentLyrics,
-                                activeLyricIndex = activeLyricIndex,
-                                currentPosition = currentPosition,
-                                syncOffsetMs = uiState.lyricsSyncOffsetMs,
-                                isKaraokeModeEnabled = uiState.isKaraokeModeEnabled,
-                                lyricsSourceType = uiState.lyricsSourceType,
-                                isLyricsLoading = uiState.isLyricsLoading,
-                                isKariModeEnabled = isKariModeEnabled,
-                                dominantColor = animatedDominant,
-                                vibrantColor = animatedVibrant,
-                                onSeekTo = { pos -> viewModel.seekTo(pos) },
-                                onAdjustOffset = { delta -> viewModel.adjustLyricsOffset(delta) },
-                                onResetOffset = { viewModel.resetLyricsOffset() },
-                                onToggleKaraokeMode = { viewModel.toggleKaraokeMode() },
-                                onImportLyrics = { uri -> viewModel.importLyricsFromUri(song, uri) },
-                                onClearCustomLyrics = { viewModel.clearImportedLyrics(song) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
+            selectedTab = queueDrawerTab,
+            onSelectTab = { queueDrawerTab = it },
+            song = song,
+            uiState = uiState,
+            viewModel = viewModel,
+            currentPosition = currentPosition,
+            animatedDominant = animatedDominant,
+            animatedVibrant = animatedVibrant,
+            onDismissSheet = { isQueueDrawerExpanded = false },
+            onDismissPlayer = dismissSheet,
+            modifier = Modifier.zIndex(10f)
+        )
     }
 
     DhunDialogsAndSheets(
