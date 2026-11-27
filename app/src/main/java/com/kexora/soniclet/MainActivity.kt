@@ -340,6 +340,7 @@ class MainActivity : ComponentActivity() {
                                     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                                         ModalNavigationDrawer(
                                             drawerState = drawerState,
+                                            scrimColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
                                             drawerContent = {
                                                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                                                     AppSidebarDrawer(

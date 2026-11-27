@@ -308,6 +308,11 @@ class MusicPlaybackService : Service() {
             if (isRadioForegroundActive) {
                 return START_STICKY
             }
+            try {
+                (applicationContext as? com.kexora.soniclet.SonicletApplication)
+                    ?.musicViewModel
+                    ?.persistPlaybackStateSafely()
+            } catch (_: Exception) {}
             isForegroundServiceRunning = false
             releaseWakeLock()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -360,6 +365,11 @@ class MusicPlaybackService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+        try {
+            (applicationContext as? com.kexora.soniclet.SonicletApplication)
+                ?.musicViewModel
+                ?.persistPlaybackStateSafely()
+        } catch (_: Exception) {}
         // Keep service & background Radio WebView alive when swiped from recents so audio continues playing
         if (isRadioForegroundActive) {
             RadioBackgroundHost.keepAliveAfterTaskRemovedIfInitialized()
@@ -367,6 +377,11 @@ class MusicPlaybackService : Service() {
     }
 
     override fun onDestroy() {
+        try {
+            (applicationContext as? com.kexora.soniclet.SonicletApplication)
+                ?.musicViewModel
+                ?.persistPlaybackStateSafely()
+        } catch (_: Exception) {}
         if (instance == this) instance = null
         releaseWakeLock()
         smartMotionManager?.stop()

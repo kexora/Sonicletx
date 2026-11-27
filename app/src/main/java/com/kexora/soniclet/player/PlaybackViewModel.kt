@@ -184,12 +184,12 @@ data class MusicUiState(
     val homeForYouSongs: List<Song> = emptyList(),
     val homeMixSongs: List<Song> = emptyList(),
     val homeTopSingers: List<Pair<String, List<Song>>> = emptyList(),
-    val appTheme: AppTheme = AppTheme.SYSTEM,
+    val appTheme: AppTheme = AppTheme.DARK,
     val accentColor: Long = 0xFF00E676,
     val customBackgroundUri: String? = null,
-    val backgroundMode: String = "AMOLED",
-    val bgImageBlur: Float = 10f,
-    val bgImageDim: Float = 0.5f,
+    val backgroundMode: String = "DYNAMIC",
+    val bgImageBlur: Float = 18f,
+    val bgImageDim: Float = 0.60f,
     val solidBgColor: Long = 0xFF121212L,
     val solidBgOpacity: Float = 1.0f,
     val gradientPresetIndex: Int = 0,
@@ -201,15 +201,15 @@ data class MusicUiState(
     val fontStyle: String = "STANDARD",
     val motionLevel: String = "FLUID",
 
-    val isKariModeEnabled: Boolean = false,
-    val kariBlur: Float = 12f,
-    val kariOpacity: Float = 0.9f,
+    val isKariModeEnabled: Boolean = true,
+    val kariBlur: Float = 18f,
+    val kariOpacity: Float = 0.60f,
     val isShakeEnabled: Boolean = false,
     val isTwoFingerTapEnabled: Boolean = true,
     val twoFingerTapAction: String = "Play/Pause",
-    val isThreeFingerSwipeEnabled: Boolean = true,
+    val isThreeFingerSwipeEnabled: Boolean = false,
     val threeFingerSwipeAction: String = "Next/Previous",
-    val isVolumeEdgeSwipeEnabled: Boolean = true,
+    val isVolumeEdgeSwipeEnabled: Boolean = false,
     val isLongPressDragSeekEnabled: Boolean = true,
     val isOneFingerSwipeBackEnabled: Boolean = true,
     val isGridMode: Boolean = false,
@@ -228,14 +228,14 @@ data class MusicUiState(
     val airWaveAction: String = "Play/Pause",
     val isPickUpToPlayEnabled: Boolean = false,
     val isCrossfadeEnabled: Boolean = false,
-    val isAutoResumeOnPlugEnabled: Boolean = false,
+    val isAutoResumeOnPlugEnabled: Boolean = true,
     val isAutoPlayOnBluetoothEnabled: Boolean = false,
     val singleClickAction: String = "Play/Pause",
     val doubleClickAction: String = "Next",
     val tripleClickAction: String = "Previous",
     val isHearingSafetyEnabled: Boolean = true,
     val isGaplessPlaybackEnabled: Boolean = true,
-    val isResumeLastPositionEnabled: Boolean = true,
+    val isResumeLastPositionEnabled: Boolean = false,
     val crossfadeDurationSeconds: Int = 3,
     val isFirstLaunch: Boolean = true,
     val kariDominantColor: Long? = null,
@@ -275,7 +275,7 @@ data class MusicUiState(
     val playbackPitch: Float = 1.0f,
     val is8dAudioEnabled: Boolean = false,
     val audioSessionId: Int = 0,
-    val isEqEnabled: Boolean = true,
+    val isEqEnabled: Boolean = false,
     val isReverbEnabled: Boolean = false,
     val isBassBoostEnabled: Boolean = false,
     val isVirtualizerEnabled: Boolean = false,
@@ -372,13 +372,196 @@ class MusicViewModel @Inject constructor(
     private var audioFocusRequest: AudioFocusRequest? = null
     private var lastPlayedMediaId: String? = null
     private var hasCrossfadedCurrentSong = false
+    private var bypassResumeForNextTransition = false
+    private var skipResumeEvaluationForNextTransition = false
+    private var hasRestoredLastSession = false
+
+    private fun effectiveDurationMs(song: Song): Long {
+        val playerDur = try {
+            val currentMediaId = exoPlayer.currentMediaItem?.mediaId
+                ?.removePrefix("manual_")
+                ?.substringBefore("_")
+                ?.toLongOrNull()
+            if (currentMediaId == song.id && exoPlayer.duration > 0L) exoPlayer.duration else 0L
+        } catch (_: Exception) {
+            0L
+        }
+        return if (playerDur > 0L) playerDur else song.duration.coerceAtLeast(0L)
+    }
+
+    private fun persistLastSessionState(
+        song: Song,
+        positionMs: Long,
+        durationMs: Long,
+        queueOverride: List<Song>? = null,
+        queueTitleOverride: String? = null
+    ) {
+        try {
+            val safeSessionPos = ListeningHistoryRepository.sanitizePositionForResumeSave(positionMs, durationMs)
+            val queue = (queueOverride ?: _uiState.value.activeQueue).take(500)
+            val queueIdsCsv = if (queue.isNotEmpty()) queue.joinToString(",") { it.id.toString() } else song.id.toString()
+            val queueTitle = (queueTitleOverride ?: _uiState.value.queueSourceTitle).ifBlank { "Active Queue" }
+            prefs.edit()
+                .putLong("last_session_song_id", song.id)
+                .putLong("last_session_position_ms", safeSessionPos)
+                .putString("last_session_queue_ids", queueIdsCsv)
+                .putString("last_session_queue_title", queueTitle)
+                .apply()
+        } catch (_: Exception) {}
+    }
+
+    private fun saveTrackPositionWithSmartPolicy(song: Song, positionMs: Long, durationMs: Long) {
+        val safePosition = ListeningHistoryRepository.sanitizePositionForResumeSave(positionMs, durationMs)
+        audioRepository.savePlaybackPosition(song.id, safePosition)
+        persistLastSessionState(song = song, positionMs = safePosition, durationMs = durationMs)
+    }
+
+    private fun snapshotOutgoingTrackPositionBeforeSwitch() {
+        val outgoingSong = _uiState.value.currentSong ?: return
+        val outgoingPos = try {
+            if (exoPlayer.mediaItemCount > 0) exoPlayer.currentPosition.coerceAtLeast(0L)
+            else _currentPosition.value.coerceAtLeast(0L)
+        } catch (_: Exception) {
+            _currentPosition.value.coerceAtLeast(0L)
+        }
+        val outgoingDuration = effectiveDurationMs(outgoingSong)
+        saveTrackPositionWithSmartPolicy(outgoingSong, outgoingPos, outgoingDuration)
+    }
+
+    private fun resolveAndApplySmartResume(song: Song, bypassResume: Boolean): Long {
+        val effectiveDur = effectiveDurationMs(song)
+        if (bypassResume) {
+            audioRepository.savePlaybackPosition(song.id, 0L)
+            return 0L
+        }
+        if (!_uiState.value.isResumeLastPositionEnabled) {
+            return 0L
+        }
+        val savedPos = audioRepository.getSavedPlaybackPosition(song.id)
+        val validatedResumePos = ListeningHistoryRepository.resolveSmartResumePosition(
+            savedPos = savedPos,
+            durationMs = effectiveDur
+        )
+        return if (validatedResumePos > 0L) {
+            validatedResumePos
+        } else {
+            if (savedPos > 0L) {
+                audioRepository.savePlaybackPosition(song.id, 0L)
+            }
+            0L
+        }
+    }
+
+    fun persistPlaybackStateSafely() {
+        try {
+            val song = _uiState.value.currentSong ?: return
+            val durationMs = effectiveDurationMs(song)
+            val isEnded = try {
+                exoPlayer.playbackState == Player.STATE_ENDED
+            } catch (_: Exception) {
+                false
+            }
+            val currentPos = if (isEnded) {
+                0L
+            } else {
+                try {
+                    if (exoPlayer.mediaItemCount > 0) exoPlayer.currentPosition.coerceAtLeast(0L)
+                    else _currentPosition.value.coerceAtLeast(0L)
+                } catch (_: Exception) {
+                    _currentPosition.value.coerceAtLeast(0L)
+                }
+            }
+            saveTrackPositionWithSmartPolicy(song, currentPos, durationMs)
+        } catch (_: Exception) {}
+    }
+
+    internal fun restoreLastSessionStateIfNeeded(
+        visibleSongs: List<Song>,
+        allSongs: List<Song>,
+        remappedIds: Map<Long, Long>
+    ) {
+        if (hasRestoredLastSession) return
+        if (_uiState.value.currentSong != null || exoPlayer.mediaItemCount > 0) {
+            hasRestoredLastSession = true
+            return
+        }
+        hasRestoredLastSession = true
+
+        val savedSongId = prefs.getLong("last_session_song_id", -1L)
+        if (savedSongId <= 0L) return
+
+        val resolvedSongId = remappedIds[savedSongId] ?: savedSongId
+        val allById = allSongs.associateBy { it.id }
+        val visibleById = visibleSongs.associateBy { it.id }
+        val restoredSong = visibleById[resolvedSongId] ?: allById[resolvedSongId] ?: return
+
+        val savedQueueCsv = prefs.getString("last_session_queue_ids", null)
+        val restoredQueue = if (!savedQueueCsv.isNullOrBlank()) {
+            savedQueueCsv.split(",")
+                .mapNotNull { it.trim().toLongOrNull() }
+                .mapNotNull { id ->
+                    val resolved = remappedIds[id] ?: id
+                    visibleById[resolved] ?: allById[resolved]
+                }
+                .distinctBy { it.id }
+        } else {
+            emptyList()
+        }.ifEmpty {
+            visibleSongs.ifEmpty { listOf(restoredSong) }
+        }
+
+        val finalQueue = if (restoredQueue.any { it.id == restoredSong.id }) {
+            restoredQueue
+        } else {
+            listOf(restoredSong) + restoredQueue
+        }
+        val restoredQueueTitle = prefs.getString("last_session_queue_title", "Active Queue")
+            ?.ifBlank { "Active Queue" } ?: "Active Queue"
+
+        val savedSessionPos = prefs.getLong("last_session_position_ms", 0L)
+        val restoredPos = ListeningHistoryRepository.resolveSmartResumePosition(
+            savedPos = savedSessionPos,
+            durationMs = restoredSong.duration
+        )
+        if (restoredPos <= 0L && savedSessionPos > 0L) {
+            prefs.edit().putLong("last_session_position_ms", 0L).apply()
+            audioRepository.savePlaybackPosition(restoredSong.id, 0L)
+        }
+
+        _currentPosition.value = restoredPos
+        _uiState.update { state ->
+            state.copy(
+                currentSong = restoredSong,
+                activeQueue = finalQueue,
+                queueSourceTitle = restoredQueueTitle,
+                totalDuration = restoredSong.duration.coerceAtLeast(0L)
+            )
+        }
+        try { fxVm.extractKariPalette(restoredSong) } catch (_: Exception) {}
+        try { fxVm.loadLyricsForSong(restoredSong) } catch (_: Exception) {}
+        try { fxVm.inspectAudioSpecsForSong(restoredSong) } catch (_: Exception) {}
+    }
 
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val previousSong = _uiState.value.currentSong ?: activeListeningSong
+            val isNaturalCompletion = (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+            val isRepeatLoop = (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
+
+            // Step 1: Auto-clear saved playback position immediately when outgoing track finishes naturally or loops
+            if (previousSong != null && (isNaturalCompletion || isRepeatLoop)) {
+                audioRepository.savePlaybackPosition(previousSong.id, 0L)
+                persistLastSessionState(
+                    song = previousSong,
+                    positionMs = 0L,
+                    durationMs = effectiveDurationMs(previousSong)
+                )
+            }
+
             hasCrossfadedCurrentSong = false
             crossfadeJob?.cancel()
 
-            if (_uiState.value.isCrossfadeEnabled && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+            if (_uiState.value.isCrossfadeEnabled && isNaturalCompletion) {
                 exoPlayer.volume = 0.15f
                 val crossfadeDurationMs = (_uiState.value.crossfadeDurationSeconds * 1000L).coerceIn(1000L, 5000L)
                 crossfadeJob = viewModelScope.launch {
@@ -396,9 +579,8 @@ class MusicViewModel @Inject constructor(
                 exoPlayer.volume = 1.0f
             }
 
-            if (_uiState.value.sleepTimerOption == SleepTimerOption.END_OF_SONG &&
-                reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
-            ) {
+            if (_uiState.value.sleepTimerOption == SleepTimerOption.END_OF_SONG && isNaturalCompletion) {
+                finalizePreviousListeningSession(endedNaturally = true)
                 exoPlayer.pause()
                 _uiState.update { it.copy(sleepTimerOption = SleepTimerOption.OFF, sleepTimerRemainingMs = 0L) }
                 return
@@ -421,9 +603,7 @@ class MusicViewModel @Inject constructor(
                             abRepeatPointB = null
                         )
                     }
-                    finalizePreviousListeningSession(
-                        endedNaturally = (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
-                    )
+                    finalizePreviousListeningSession(endedNaturally = isNaturalCompletion)
                     activeListeningSong = song
                     activeSongSessionListeningMs = 0L
                     pendingUnflushedListenMs = 0L
@@ -433,22 +613,49 @@ class MusicViewModel @Inject constructor(
                     try { fxVm.loadLyricsForSong(song) } catch (_: Exception) {}
                     try { fxVm.inspectAudioSpecsForSong(song) } catch (_: Exception) {}
                     try { audioRepository.recordTrackFingerprint(song) } catch (_: Exception) {}
-                    try { updateNotification() } catch (_: Exception) {}
 
                     _uiState.update { state -> state.copy(actuallyPlayedSongIds = state.actuallyPlayedSongIds + song.id) }
 
-                    try {
-                        val resumeEnabled = uiState.value.isResumeLastPositionEnabled
-                        val savedPos = if (resumeEnabled) audioRepository.getSavedPlaybackPosition(song.id) else 0L
-                        if (resumeEnabled && savedPos > 1000L && (song.duration <= 0L || savedPos < song.duration - 2000L)) {
-                            exoPlayer.seekTo(savedPos)
-                        } else {
-                            exoPlayer.seekTo(0L)
-                            audioRepository.savePlaybackPosition(song.id, 0L)
-                        }
-                    } catch (_: Exception) {}
+                    val shouldSkipResumeEval = skipResumeEvaluationForNextTransition
+                    skipResumeEvaluationForNextTransition = false
+
+                    if (!shouldSkipResumeEval) {
+                        try {
+                            val isRepeatOneOverride = isRepeatLoop ||
+                                (exoPlayer.repeatMode == Player.REPEAT_MODE_ONE && previousSong?.id == song.id && isNaturalCompletion)
+                            val bypassResume = isRepeatOneOverride || bypassResumeForNextTransition
+                            bypassResumeForNextTransition = false
+
+                            val resumePos = resolveAndApplySmartResume(song = song, bypassResume = bypassResume)
+                            if (resumePos > 0L) {
+                                exoPlayer.seekTo(resumePos)
+                                _currentPosition.value = resumePos
+                            } else {
+                                if (exoPlayer.currentPosition > 0L) {
+                                    exoPlayer.seekTo(0L)
+                                }
+                                _currentPosition.value = 0L
+                            }
+                            persistLastSessionState(
+                                song = song,
+                                positionMs = resumePos,
+                                durationMs = effectiveDurationMs(song)
+                            )
+                        } catch (_: Exception) {}
+                    } else {
+                        bypassResumeForNextTransition = false
+                        persistLastSessionState(
+                            song = song,
+                            positionMs = _currentPosition.value,
+                            durationMs = effectiveDurationMs(song)
+                        )
+                    }
+
+                    try { updateNotification() } catch (_: Exception) {}
                 }
             } else {
+                skipResumeEvaluationForNextTransition = false
+                bypassResumeForNextTransition = false
                 if (_uiState.value.currentSong == null) {
                     _uiState.update { it.copy(currentSong = null) }
                 }
@@ -473,13 +680,14 @@ class MusicViewModel @Inject constructor(
             } else {
                 stopPositionTracker()
 
-                val currentPos = exoPlayer.currentPosition
-                val duration = exoPlayer.duration
+                val currentPos = exoPlayer.currentPosition.coerceAtLeast(0L)
                 _uiState.value.currentSong?.let { song ->
-                    if (currentPos > 1000L && (duration <= 0L || currentPos < duration - 1500L)) {
-                        audioRepository.savePlaybackPosition(song.id, currentPos)
-                    } else if (duration > 0L && currentPos >= duration - 1500L) {
+                    val effectiveDur = effectiveDurationMs(song)
+                    if (exoPlayer.playbackState == Player.STATE_ENDED) {
                         audioRepository.savePlaybackPosition(song.id, 0L)
+                        persistLastSessionState(song = song, positionMs = 0L, durationMs = effectiveDur)
+                    } else {
+                        saveTrackPositionWithSmartPolicy(song, currentPos, effectiveDur)
                     }
                 }
 
@@ -515,8 +723,15 @@ class MusicViewModel @Inject constructor(
                     )
                 }
                 Player.STATE_ENDED -> {
+                    // Step 1: Auto-clear saved playback position immediately on natural completion
                     _uiState.value.currentSong?.let { song ->
                         audioRepository.savePlaybackPosition(song.id, 0L)
+                        persistLastSessionState(song = song, positionMs = 0L, durationMs = effectiveDurationMs(song))
+                    }
+                    activeListeningSong?.let { song ->
+                        if (song.id != _uiState.value.currentSong?.id) {
+                            audioRepository.savePlaybackPosition(song.id, 0L)
+                        }
                     }
                     onSongEnded()
                 }
@@ -771,25 +986,46 @@ class MusicViewModel @Inject constructor(
         }
     }
 
-    private fun playWithFocusCheck() {
+    private fun playWithFocusCheck(forceStartFromBeginning: Boolean = false) {
         if (exoPlayer.mediaItemCount == 0 && _uiState.value.currentSong != null) {
             val current = _uiState.value.currentSong!!
             val queue = _uiState.value.activeQueue.ifEmpty { _uiState.value.filteredSongList.ifEmpty { _uiState.value.songList } }
+            val effectiveDur = effectiveDurationMs(current)
+            val rawPos = if (forceStartFromBeginning) 0L else _currentPosition.value.coerceAtLeast(0L)
+            val safeStartPos = if (forceStartFromBeginning ||
+                ListeningHistoryRepository.isTrackCompletedOrNearEnd(rawPos, effectiveDur) ||
+                rawPos < ListeningHistoryRepository.EARLY_START_GUARD_MS ||
+                effectiveDur in 1L until ListeningHistoryRepository.MIN_RESUME_TRACK_DURATION_MS
+            ) {
+                audioRepository.savePlaybackPosition(current.id, 0L)
+                persistLastSessionState(song = current, positionMs = 0L, durationMs = effectiveDur)
+                0L
+            } else {
+                rawPos
+            }
+            _currentPosition.value = safeStartPos
+            skipResumeEvaluationForNextTransition = true
             if (queue.isNotEmpty()) {
                 val startIndex = queue.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
                 val mediaItems = queue.map {
                     MediaItem.Builder().setMediaId(it.id.toString()).setUri(it.contentUri).build()
                 }
-                exoPlayer.setMediaItems(mediaItems, startIndex, _currentPosition.value)
+                exoPlayer.setMediaItems(mediaItems, startIndex, safeStartPos)
             } else {
                 val mediaItem = MediaItem.Builder().setMediaId(current.id.toString()).setUri(current.contentUri).build()
-                exoPlayer.setMediaItem(mediaItem)
+                exoPlayer.setMediaItem(mediaItem, safeStartPos)
             }
         }
         if (exoPlayer.playbackState == Player.STATE_IDLE) {
             exoPlayer.prepare()
         } else if (exoPlayer.playbackState == Player.STATE_ENDED) {
-            exoPlayer.seekToDefaultPosition()
+            // Step 5: Always restart cleanly from 0L and clear saved position when pressing Play from STATE_ENDED
+            _uiState.value.currentSong?.let { song ->
+                audioRepository.savePlaybackPosition(song.id, 0L)
+                persistLastSessionState(song = song, positionMs = 0L, durationMs = effectiveDurationMs(song))
+            }
+            _currentPosition.value = 0L
+            exoPlayer.seekTo(0L)
             exoPlayer.prepare()
         }
         // Completely stop Radio & release Radio audio focus before local playback starts
@@ -964,11 +1200,13 @@ class MusicViewModel @Inject constructor(
         MediaNotificationManager.registerListener(this)
         startVolumeGuard()
 
+        val savedEqEnabled = prefs.getBoolean("setting_eq_enabled", false)
         val savedBassVibEnabled = prefs.getBoolean("bass_vibration_enabled", false)
         val savedBassVibStrength = prefs.getInt("bass_vibration_strength", 80)
         val savedBassVibMode = prefs.getString("bass_vibration_mode", "DJ Club Bass") ?: "DJ Club Bass"
         _uiState.update {
             it.copy(
+                isEqEnabled = savedEqEnabled,
                 isBassVibrationEnabled = savedBassVibEnabled,
                 bassVibrationStrength = savedBassVibStrength,
                 bassVibrationMode = savedBassVibMode
@@ -1330,7 +1568,17 @@ class MusicViewModel @Inject constructor(
             }
 
             if (foundIndex != -1) {
-                exoPlayer.seekToDefaultPosition(foundIndex)
+                val isSameSong = (_uiState.value.currentSong?.id == song.id)
+                if (!isSameSong) {
+                    snapshotOutgoingTrackPositionBeforeSwitch()
+                    skipResumeEvaluationForNextTransition = false
+                    exoPlayer.seekToDefaultPosition(foundIndex)
+                } else {
+                    audioRepository.savePlaybackPosition(song.id, 0L)
+                    persistLastSessionState(song = song, positionMs = 0L, durationMs = effectiveDurationMs(song))
+                    _currentPosition.value = 0L
+                    exoPlayer.seekTo(foundIndex, 0L)
+                }
                 if (exoPlayer.playbackState == Player.STATE_IDLE) {
                     exoPlayer.prepare()
                 }
@@ -1341,6 +1589,9 @@ class MusicViewModel @Inject constructor(
                 if (targetIndex != -1) {
                     playQueue(songsList, targetIndex, queueSource ?: "All Tracks")
                 } else {
+                    snapshotOutgoingTrackPositionBeforeSwitch()
+                    skipResumeEvaluationForNextTransition = false
+
                     val updatedAll = _uiState.value.allSongsList.toMutableList()
                     if (updatedAll.none { it.id == song.id }) {
                         updatedAll.add(0, song)
@@ -1413,6 +1664,12 @@ class MusicViewModel @Inject constructor(
     fun playQueue(songs: List<Song>, startIndex: Int = 0, sourceTitle: String = "Active Queue") {
         if (songs.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, songs.size - 1)
+        val targetSong = songs[safeIndex]
+
+        if (_uiState.value.currentSong?.id != targetSong.id) {
+            snapshotOutgoingTrackPositionBeforeSwitch()
+        }
+        skipResumeEvaluationForNextTransition = false
 
         _uiState.update { it.copy(activeQueue = songs, queueSourceTitle = sourceTitle) }
 
@@ -1483,6 +1740,9 @@ class MusicViewModel @Inject constructor(
         val safePosition = positionMs.coerceIn(0L, _uiState.value.totalDuration.coerceAtLeast(1L))
         exoPlayer.seekTo(safePosition)
         _currentPosition.value = safePosition
+        _uiState.value.currentSong?.let { song ->
+            saveTrackPositionWithSmartPolicy(song, safePosition, effectiveDurationMs(song))
+        }
         val currentState = _uiState.value
         if (currentState.currentLyrics.isNotEmpty()) {
             val idx = com.kexora.soniclet.lyrics.LyricsUtil.findActiveLyricIndex(
@@ -1505,6 +1765,8 @@ class MusicViewModel @Inject constructor(
     }
 
     fun playNext() {
+        snapshotOutgoingTrackPositionBeforeSwitch()
+        skipResumeEvaluationForNextTransition = false
         if (_uiState.value.repeatMode == RepeatMode.ONE) {
             val currentIndex = exoPlayer.currentMediaItemIndex
             val totalItems = exoPlayer.mediaItemCount
@@ -1539,13 +1801,20 @@ class MusicViewModel @Inject constructor(
 
     fun playPrevious() {
         if (exoPlayer.currentPosition > 3000L) {
-            exoPlayer.seekTo(0)
+            // Step 5: Restarting current track via Previous clears saved position and seeks cleanly to 0L
+            _uiState.value.currentSong?.let { song ->
+                audioRepository.savePlaybackPosition(song.id, 0L)
+                persistLastSessionState(song = song, positionMs = 0L, durationMs = effectiveDurationMs(song))
+            }
+            exoPlayer.seekTo(0L)
             _currentPosition.value = 0L
             updateNotification(overridePositionMs = 0L)
         } else if (_uiState.value.repeatMode == RepeatMode.ONE) {
             val currentIndex = exoPlayer.currentMediaItemIndex
             val totalItems = exoPlayer.mediaItemCount
             if (totalItems > 1) {
+                snapshotOutgoingTrackPositionBeforeSwitch()
+                skipResumeEvaluationForNextTransition = false
                 val prevIndex = if (currentIndex - 1 < 0) totalItems - 1 else currentIndex - 1
                 exoPlayer.seekToDefaultPosition(prevIndex)
                 if (exoPlayer.playbackState == Player.STATE_IDLE) {
@@ -1554,13 +1823,21 @@ class MusicViewModel @Inject constructor(
                 playWithFocusCheck()
                 return
             }
-            exoPlayer.seekTo(0)
+            _uiState.value.currentSong?.let { song ->
+                audioRepository.savePlaybackPosition(song.id, 0L)
+                persistLastSessionState(song = song, positionMs = 0L, durationMs = effectiveDurationMs(song))
+            }
+            exoPlayer.seekTo(0L)
             _currentPosition.value = 0L
             updateNotification(overridePositionMs = 0L)
         } else if (exoPlayer.hasPreviousMediaItem()) {
+            snapshotOutgoingTrackPositionBeforeSwitch()
+            skipResumeEvaluationForNextTransition = false
             exoPlayer.seekToPreviousMediaItem()
             playWithFocusCheck()
         } else if (exoPlayer.mediaItemCount > 0) {
+            snapshotOutgoingTrackPositionBeforeSwitch()
+            skipResumeEvaluationForNextTransition = false
             exoPlayer.seekToDefaultPosition(exoPlayer.mediaItemCount - 1)
             playWithFocusCheck()
         } else {
@@ -1571,7 +1848,11 @@ class MusicViewModel @Inject constructor(
                 val prevIdx = if (curIdx > 0) curIdx - 1 else queue.size - 1
                 playSong(queue[prevIdx])
             } else {
-                exoPlayer.seekTo(0)
+                current?.let { song ->
+                    audioRepository.savePlaybackPosition(song.id, 0L)
+                    persistLastSessionState(song = song, positionMs = 0L, durationMs = effectiveDurationMs(song))
+                }
+                exoPlayer.seekTo(0L)
                 _currentPosition.value = 0L
                 updateNotification(overridePositionMs = 0L)
             }
@@ -1958,11 +2239,22 @@ class MusicViewModel @Inject constructor(
 
     fun playFromBeginning() {
         _uiState.value.currentSong?.let { song ->
-            exoPlayer.seekTo(0L)
+            // Step 5: Explicit Play from Beginning bypasses saved resume and clears stored position
+            bypassResumeForNextTransition = true
             audioRepository.savePlaybackPosition(song.id, 0L)
-            if (!exoPlayer.isPlaying) {
-                playWithFocusCheck()
+            persistLastSessionState(song = song, positionMs = 0L, durationMs = effectiveDurationMs(song))
+            _currentPosition.value = 0L
+            if (exoPlayer.mediaItemCount > 0) {
+                exoPlayer.seekTo(0L)
+                if (exoPlayer.playbackState == Player.STATE_IDLE || exoPlayer.playbackState == Player.STATE_ENDED) {
+                    exoPlayer.prepare()
+                }
             }
+            if (!exoPlayer.isPlaying) {
+                playWithFocusCheck(forceStartFromBeginning = true)
+            }
+            bypassResumeForNextTransition = false
+            updateNotification(overridePositionMs = 0L)
         }
     }
 
@@ -2031,17 +2323,19 @@ class MusicViewModel @Inject constructor(
                     }
                 }
 
-                if (abs(currentPos - lastSavedPos) > 5000L) {
-                    if (duration <= 0L || currentPos < duration - 1500L) {
-                        _uiState.value.currentSong?.let { song ->
-                            audioRepository.savePlaybackPosition(song.id, currentPos)
+                // Steps 2 & 3: Smart periodic save with near-end (92% / last 10s), early-start (< 10s), and short-track (< 60s) guards
+                if (currentSong != null) {
+                    val effectiveDur = if (duration > 0L) duration else currentSong.duration.coerceAtLeast(0L)
+                    if (ListeningHistoryRepository.isTrackCompletedOrNearEnd(currentPos, effectiveDur)) {
+                        if (audioRepository.getSavedPlaybackPosition(currentSong.id) > 0L || lastSavedPos != 0L) {
+                            audioRepository.savePlaybackPosition(currentSong.id, 0L)
+                            persistLastSessionState(song = currentSong, positionMs = 0L, durationMs = effectiveDur)
+                            lastSavedPos = 0L
                         }
-                    } else {
-                        _uiState.value.currentSong?.let { song ->
-                            audioRepository.savePlaybackPosition(song.id, 0L)
-                        }
+                    } else if (abs(currentPos - lastSavedPos) >= 5000L) {
+                        saveTrackPositionWithSmartPolicy(currentSong, currentPos, effectiveDur)
+                        lastSavedPos = currentPos
                     }
-                    lastSavedPos = currentPos
                 }
 
                 val abState = _uiState.value
@@ -2239,6 +2533,7 @@ class MusicViewModel @Inject constructor(
     }
 
     override fun onStopPlayback() {
+        persistPlaybackStateSafely()
         crossfadeJob?.cancel()
         volumeFadeJob?.cancel()
         interruptionWatcherJob?.cancel()
@@ -2256,6 +2551,7 @@ class MusicViewModel @Inject constructor(
     }
 
     fun stopAndHideMiniPlayerForRadio() {
+        persistPlaybackStateSafely()
         crossfadeJob?.cancel()
         volumeFadeJob?.cancel()
         interruptionWatcherJob?.cancel()
@@ -2279,6 +2575,7 @@ class MusicViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        persistPlaybackStateSafely()
         super.onCleared()
         libVm.unregisterMediaStoreObserver()
         try {

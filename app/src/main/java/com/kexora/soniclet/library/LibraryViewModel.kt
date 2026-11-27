@@ -330,6 +330,20 @@ internal class LibraryViewModel(
             )
         }
 
+        // Purge any stale/near-end/short-track saved resume positions against actual song durations
+        if (combinedSongs.isNotEmpty()) {
+            vm.audioRepository.purgeInvalidPlaybackPositions(combinedSongs)
+        }
+
+        // Step 6: Restore last active track/queue across app restarts independently of per-song resume toggle
+        if (combinedSongs.isNotEmpty()) {
+            vm.restoreLastSessionStateIfNeeded(
+                visibleSongs = vm._uiState.value.songList,
+                allSongs = combinedSongs,
+                remappedIds = remappedIds
+            )
+        }
+
         // Refresh session-locked 5-layer Home recommendation cache only when librarySignature/date/category changes
         recomputeHomeRecommendationsIfNeeded(force = false)
 

@@ -543,243 +543,31 @@ fun AnimatedPermissionHero() {
 }
 
 /**
- * Adorable Kawaii Soniclet Vinyl Mascot wearing cute headphones,
- * surrounded by floating musical particles and miniature equalizer bars.
+ * Compact, non-clipped Soniclet headphone + spinning vinyl graphic (112.dp height)
+ * with subtle animated equalizer dots below.
  */
 @Composable
 fun CuteSonicletMascot(
     accentColor: Color,
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "cute_mascot_anim")
-
-    // Slow rotating vinyl disc
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(8000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "vinyl_spin"
+    CompactHeadphoneVinylHero(
+        accentColor = accentColor,
+        centerContent = {
+            SonicletLogoBadge(
+                badgeSize = 30.dp,
+                logoSize = 18.dp,
+                showBorder = true,
+                borderColor = accentColor.copy(alpha = 0.85f)
+            )
+        },
+        modifier = modifier
     )
-
-    // Gentle cute bouncing scale (breathing joy)
-    val bounceScale by infiniteTransition.animateFloat(
-        initialValue = 0.96f,
-        targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1300, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "mascot_bounce"
-    )
-
-    // Subtle head bob angle
-    val headBob by infiniteTransition.animateFloat(
-        initialValue = -3f,
-        targetValue = 3f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1300, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "head_bob"
-    )
-
-    // Floating particles offset
-    val particleFloat by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = -14f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "particle_float"
-    )
-
-    // Micro equalizer frequency bars
-    val eq1 by infiniteTransition.animateFloat(0.3f, 0.9f, infiniteRepeatable(tween(420, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "eq1")
-    val eq2 by infiniteTransition.animateFloat(0.8f, 0.35f, infiniteRepeatable(tween(510, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "eq2")
-    val eq3 by infiniteTransition.animateFloat(0.4f, 1f, infiniteRepeatable(tween(380, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "eq3")
-    val eq4 by infiniteTransition.animateFloat(0.9f, 0.4f, infiniteRepeatable(tween(460, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "eq4")
-    val eq5 by infiniteTransition.animateFloat(0.35f, 0.8f, infiniteRepeatable(tween(530, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "eq5")
-
-    Box(
-        modifier = modifier.size(165.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        // Deep ambient soft glow
-        Box(
-            modifier = Modifier
-                .size(150.dp)
-                .background(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            accentColor.copy(alpha = 0.35f),
-                            accentColor.copy(alpha = 0.10f),
-                            Color.Transparent
-                        )
-                    ),
-                    shape = CircleShape
-                )
-        )
-
-        // Floating Cute Sparkles & Notes
-        Icon(
-            imageVector = Icons.Rounded.AutoAwesome,
-            contentDescription = null,
-            tint = Color(0xFFFFD54F),
-            modifier = Modifier
-                .size(20.dp)
-                .align(Alignment.TopStart)
-                .offset(x = 12.dp, y = (10 + particleFloat).dp)
-        )
-
-        Icon(
-            imageVector = Icons.Rounded.MusicNote,
-            contentDescription = null,
-            tint = accentColor,
-            modifier = Modifier
-                .size(24.dp)
-                .align(Alignment.TopEnd)
-                .offset(x = (-10).dp, y = (8 - particleFloat).dp)
-        )
-
-        Icon(
-            imageVector = Icons.Rounded.Favorite,
-            contentDescription = null,
-            tint = Color(0xFFFF5252),
-            modifier = Modifier
-                .size(18.dp)
-                .align(Alignment.BottomEnd)
-                .offset(x = (-6).dp, y = (-20 + particleFloat).dp)
-        )
-
-        // Mascot Main Body (Vinyl + Headset)
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier
-                .scale(bounceScale)
-                .graphicsLayer { rotationZ = headBob }
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(114.dp)
-            ) {
-                // Vinyl outer record body
-                Box(
-                    modifier = Modifier
-                        .size(98.dp)
-                        .clip(CircleShape)
-                        .background(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    Color(0xFF2B283A),
-                                    Color(0xFF14121E),
-                                    Color(0xFF0C0A14)
-                                )
-                            )
-                        )
-                        .border(
-                            width = 2.dp,
-                            color = accentColor.copy(alpha = 0.35f),
-                            shape = CircleShape
-                        )
-                ) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val center = Offset(size.width / 2f, size.height / 2f)
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.08f),
-                            radius = size.width * 0.42f,
-                            center = center,
-                            style = Stroke(width = 1.dp.toPx())
-                        )
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.06f),
-                            radius = size.width * 0.33f,
-                            center = center,
-                            style = Stroke(width = 1.dp.toPx())
-                        )
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.05f),
-                            radius = size.width * 0.24f,
-                            center = center,
-                            style = Stroke(width = 1.dp.toPx())
-                        )
-                    }
-                }
-
-                // Center Label with high contrast music logo (clean, static & ultra visible in both Dark and Light modes)
-                SonicletLogoBadge(
-                    badgeSize = 46.dp,
-                    logoSize = 28.dp,
-                    showBorder = true,
-                    borderColor = accentColor
-                )
-
-                // Kawaii Headset Arch (Headband across top)
-                Canvas(
-                    modifier = Modifier.size(114.dp)
-                ) {
-                    drawArc(
-                        color = accentColor,
-                        startAngle = 195f,
-                        sweepAngle = 150f,
-                        useCenter = false,
-                        style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
-                    )
-                }
-
-                // Left Ear Cushion
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .size(width = 13.dp, height = 32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(accentColor)
-                        .border(1.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-                )
-
-                // Right Ear Cushion
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .size(width = 13.dp, height = 32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(accentColor)
-                        .border(1.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Micro pulsating equalizer rhythm bars
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(3.5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.height(11.dp)
-            ) {
-                val bars = listOf(eq1, eq2, eq3, eq4, eq5)
-                bars.forEachIndexed { index, fraction ->
-                    Box(
-                        modifier = Modifier
-                            .width(3.dp)
-                            .fillMaxHeight(fraction.coerceIn(0.2f, 1f))
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(
-                                if (index == 2) accentColor
-                                else accentColor.copy(alpha = 0.65f)
-                            )
-                    )
-                }
-            }
-        }
-    }
 }
 
 /**
- * Adorable Permission Hero with glowing pastel aura and unlock celebration.
+ * Compact, non-clipped Permissions headphone + vinyl graphic (112.dp height)
+ * that shifts to emerald green with a checkmark once access is granted.
  */
 @Composable
 fun CutePermissionHero(
@@ -787,186 +575,241 @@ fun CutePermissionHero(
     isGranted: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "cute_perm_anim")
+    val activeColor by animateColorAsState(
+        targetValue = if (isGranted) Color(0xFF00E676) else accentColor,
+        animationSpec = tween(350),
+        label = "perm_hero_color"
+    )
+    CompactHeadphoneVinylHero(
+        accentColor = activeColor,
+        centerContent = {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(activeColor.copy(alpha = 0.22f))
+                    .border(1.2.dp, activeColor.copy(alpha = 0.85f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isGranted) Icons.Rounded.CheckCircle else Icons.Rounded.MusicNote,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = activeColor
+                )
+            }
+        },
+        modifier = modifier
+    )
+}
 
-    // Slow rotating vinyl disc
+@Composable
+private fun CompactHeadphoneVinylHero(
+    accentColor: Color,
+    centerContent: @Composable () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "compact_vinyl_hero")
+
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(8000, easing = LinearEasing),
+            animation = tween(9000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "perm_vinyl_spin"
+        label = "vinyl_spin"
     )
 
-    // Breathing bounce scale
     val breatheScale by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.05f,
+        initialValue = 0.985f,
+        targetValue = 1.015f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
+            animation = tween(2200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "perm_breathe"
+        label = "vinyl_breathe"
     )
 
-    // Floating particles offset
-    val floatOffset by infiniteTransition.animateFloat(
-        initialValue = -5f,
-        targetValue = 5f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "perm_float"
+    val dot1 by infiniteTransition.animateFloat(
+        initialValue = 0.35f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(520, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "eq_dot_1"
+    )
+    val dot2 by infiniteTransition.animateFloat(
+        initialValue = 0.95f, targetValue = 0.35f,
+        animationSpec = infiniteRepeatable(tween(600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "eq_dot_2"
+    )
+    val dot3 by infiniteTransition.animateFloat(
+        initialValue = 0.4f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(460, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "eq_dot_3"
+    )
+    val dot4 by infiniteTransition.animateFloat(
+        initialValue = 0.9f, targetValue = 0.35f,
+        animationSpec = infiniteRepeatable(tween(580, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "eq_dot_4"
+    )
+    val dot5 by infiniteTransition.animateFloat(
+        initialValue = 0.35f, targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(tween(540, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "eq_dot_5"
     )
 
-    // Micro equalizer frequency bars
-    val eq1 by infiniteTransition.animateFloat(0.3f, 0.9f, infiniteRepeatable(tween(420, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "perm_eq1")
-    val eq2 by infiniteTransition.animateFloat(0.8f, 0.35f, infiniteRepeatable(tween(510, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "perm_eq2")
-    val eq3 by infiniteTransition.animateFloat(0.4f, 1f, infiniteRepeatable(tween(380, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "perm_eq3")
-
-    val activeColor = if (isGranted) Color(0xFF00E676) else accentColor
-
-    Box(
-        modifier = modifier.size(150.dp),
-        contentAlignment = Alignment.Center
+    Column(
+        modifier = modifier
+            .height(112.dp)
+            .wrapContentWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        // Deep ambient soft radial glow
+        // Headphone + Rotating Vinyl Assembly (88.dp tall, padded safely so top arch never clips)
         Box(
             modifier = Modifier
-                .size(140.dp)
-                .background(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            activeColor.copy(alpha = 0.38f),
-                            activeColor.copy(alpha = 0.12f),
-                            Color.Transparent
-                        )
-                    ),
-                    shape = CircleShape
-                )
-        )
-
-        // Floating Cute Sparkles & Music Note
-        Icon(
-            imageVector = if (isGranted) Icons.Rounded.Star else Icons.Rounded.AutoAwesome,
-            contentDescription = null,
-            tint = if (isGranted) Color(0xFFFFD54F) else activeColor,
-            modifier = Modifier
-                .size(20.dp)
-                .align(Alignment.TopStart)
-                .offset(x = 10.dp, y = (10 + floatOffset).dp)
-        )
-
-        Icon(
-            imageVector = Icons.Rounded.MusicNote,
-            contentDescription = null,
-            tint = activeColor,
-            modifier = Modifier
-                .size(22.dp)
-                .align(Alignment.TopEnd)
-                .offset(x = (-8).dp, y = (8 - floatOffset).dp)
-        )
-
-        // Center Cute Mascot Disk
-        Box(
-            modifier = Modifier
-                .size(105.dp)
+                .size(width = 104.dp, height = 88.dp)
                 .scale(breatheScale),
             contentAlignment = Alignment.Center
         ) {
-            // Outer Headphone Arch
-            Canvas(modifier = Modifier.size(102.dp)) {
-                drawArc(
-                    color = activeColor,
-                    startAngle = 190f,
-                    sweepAngle = 160f,
-                    useCenter = false,
-                    style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
-                )
-            }
-
-            // Rotating Vinyl Disc
+            // Subtle inner glow right behind the vinyl
             Box(
                 modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF14141A))
-                    .rotate(rotation)
-                    .border(1.5.dp, activeColor.copy(alpha = 0.5f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                // Vinyl Groove Lines
-                Box(
-                    modifier = Modifier
-                        .size(62.dp)
-                        .border(1.dp, Color.White.copy(alpha = 0.12f), CircleShape)
-                )
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
-                )
-                
-                // Disc Center Label
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(activeColor.copy(alpha = 0.85f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isGranted) Icons.Rounded.CheckCircle else Icons.Rounded.FolderShared,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = Color.White
+                    .size(84.dp)
+                    .background(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                accentColor.copy(alpha = 0.24f),
+                                accentColor.copy(alpha = 0.06f),
+                                Color.Transparent
+                            )
+                        ),
+                        shape = CircleShape
                     )
-                }
+            )
+
+            // Headphone Arch (inset by stroke half-width so it never clips)
+            Canvas(
+                modifier = Modifier
+                    .size(82.dp)
+                    .align(Alignment.Center)
+            ) {
+                val strokeWidth = 4.dp.toPx()
+                val inset = strokeWidth / 2f
+                drawArc(
+                    color = accentColor,
+                    startAngle = 192f,
+                    sweepAngle = 156f,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = androidx.compose.ui.geometry.Size(
+                        size.width - strokeWidth,
+                        size.height - strokeWidth
+                    ),
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
             }
 
-            // Left Headphone Cup
+            // Rotating Vinyl Record Disc
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .offset(y = 4.dp)
+                    .clip(CircleShape)
+                    .background(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF1D2421),
+                                Color(0xFF101513),
+                                Color(0xFF090C0B)
+                            )
+                        )
+                    )
+                    .border(1.2.dp, accentColor.copy(alpha = 0.35f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                // Spinning vinyl groove highlights
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .rotate(rotation)
+                ) {
+                    val center = Offset(size.width / 2f, size.height / 2f)
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.08f),
+                        radius = size.width * 0.41f,
+                        center = center,
+                        style = Stroke(width = 0.8.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.06f),
+                        radius = size.width * 0.32f,
+                        center = center,
+                        style = Stroke(width = 0.8.dp.toPx())
+                    )
+                    // Subtle light sheen arc that visibly rotates
+                    drawArc(
+                        color = accentColor.copy(alpha = 0.28f),
+                        startAngle = -35f,
+                        sweepAngle = 55f,
+                        useCenter = false,
+                        topLeft = Offset(size.width * 0.12f, size.height * 0.12f),
+                        size = androidx.compose.ui.geometry.Size(size.width * 0.76f, size.height * 0.76f),
+                        style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
+                    )
+                }
+
+                // Static crisp center emblem
+                centerContent()
+            }
+
+            // Left Headphone Ear Cushion
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .offset(x = (-2).dp)
-                    .size(16.dp, 26.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(activeColor)
+                    .offset(x = 8.dp, y = 4.dp)
+                    .size(width = 9.dp, height = 24.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(accentColor)
+                    .border(0.8.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(5.dp))
             )
 
-            // Right Headphone Cup
+            // Right Headphone Ear Cushion
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .offset(x = 2.dp)
-                    .size(16.dp, 26.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(activeColor)
+                    .offset(x = (-8).dp, y = 4.dp)
+                    .size(width = 9.dp, height = 24.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(accentColor)
+                    .border(0.8.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(5.dp))
             )
         }
 
-        // Mini Equalizer Waves on Left & Right
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Subtle Equalizer Dots Row
         Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .offset(y = (-4).dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalAlignment = Alignment.Bottom
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.height(10.dp)
         ) {
-            val bars = listOf(eq1, eq2, eq3, eq2, eq1)
-            bars.forEach { value ->
+            val dots = listOf(dot1, dot2, dot3, dot4, dot5)
+            dots.forEachIndexed { index, intensity ->
+                val dotScale = 0.72f + (intensity * 0.42f)
+                val dotAlpha = 0.30f + (intensity * 0.65f)
                 Box(
                     modifier = Modifier
-                        .width(3.dp)
-                        .height((16 * value).dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(activeColor.copy(alpha = 0.85f))
+                        .size(4.5.dp)
+                        .scale(dotScale)
+                        .clip(CircleShape)
+                        .background(
+                            if (index == 2) accentColor.copy(alpha = dotAlpha)
+                            else accentColor.copy(alpha = dotAlpha * 0.85f)
+                        )
                 )
             }
         }
     }
 }
+
 

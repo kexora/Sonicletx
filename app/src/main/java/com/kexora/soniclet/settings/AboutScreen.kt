@@ -24,7 +24,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,7 +38,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Email
@@ -53,7 +51,6 @@ import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -150,8 +147,8 @@ private fun launchSupportEmail(
 }
 
 /**
- * Modern, clean, and balanced About Soniclet Screen.
- * Showcases app branding, support contacts, legal policies, and official Soniclet & Kexora channels.
+ * Box-free, edge-to-edge About Soniclet Screen with borderless centered brand hero.
+ * Preserves the 7-tap Muh Easter Egg, support intents, legal policies, and Kexora channels.
  */
 @Composable
 fun AboutSettingsSubPage(
@@ -269,9 +266,7 @@ fun AboutSettingsSubPage(
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = { showOfflinePrivacyDialog = false }
-                ) {
+                Button(onClick = { showOfflinePrivacyDialog = false }) {
                     Text("Got It")
                 }
             },
@@ -405,470 +400,461 @@ fun AboutSettingsSubPage(
     }
 
     val scrollState = rememberScrollState()
-    val safeBottomPadding = maxOf(110.dp, com.kexora.soniclet.LocalPlayerBottomPadding.current + 24.dp)
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // ==========================================
-        // TOP BRAND HERO CARD (NO TOP CLIPPING)
+        // BORDERLESS CENTERED BRAND HERO HEADER
         // ==========================================
-        Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f)),
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("about_hero_card")
+                .padding(top = 26.dp, bottom = 22.dp, start = 20.dp, end = 20.dp)
+                .testTag("about_hero_card"),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 28.dp, bottom = 24.dp, start = 20.dp, end = 20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .size(92.dp)
+                    .scale(logoScale)
+                    .shadow(
+                        elevation = 16.dp,
+                        shape = CircleShape,
+                        spotColor = MaterialTheme.colorScheme.primary,
+                        ambientColor = MaterialTheme.colorScheme.primary
+                    )
+                    .clip(CircleShape)
+                    .background(
+                        Brush.sweepGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primary,
+                                EmeraldBadgeColor.copy(alpha = 0.85f),
+                                MaterialTheme.colorScheme.primary
+                            )
+                        )
+                    )
+                    .padding(2.5.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF0A0F0D)),
+                contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
-                        .size(92.dp)
-                        .scale(logoScale)
-                        .shadow(
-                            elevation = 16.dp,
-                            shape = CircleShape,
-                            spotColor = MaterialTheme.colorScheme.primary,
-                            ambientColor = MaterialTheme.colorScheme.primary
-                        )
-                        .clip(CircleShape)
+                        .fillMaxSize()
                         .background(
-                            Brush.sweepGradient(
-                                listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    EmeraldBadgeColor.copy(alpha = 0.85f),
-                                    MaterialTheme.colorScheme.primary
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                                    Color.Transparent
                                 )
                             )
-                        )
-                        .padding(2.5.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface),
+                        ),
                     contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_soniclet_app_logo),
+                        contentDescription = "Soniclet Logo",
+                        modifier = Modifier.size(56.dp),
+                        colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "Soniclet",
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 27.sp,
+                    letterSpacing = 0.4.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(5.dp))
+
+            Text(
+                text = "Pure Offline Hi-Res Music Experience",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.2.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Emerald Version Pill (7-tap Easter Egg trigger preserved)
+            val pillAccent = if (isMohModeActivated) Color(0xFFFF4081) else EmeraldBadgeColor
+            Surface(
+                onClick = {
+                    if (isMohModeActivated) {
+                        showExitMohDialog = true
+                    } else {
+                        versionTapCount++
+                        if (versionTapCount >= 7) {
+                            versionTapCount = 0
+                            showMohSecretDialog = true
+                        }
+                    }
+                },
+                color = pillAccent.copy(alpha = 0.14f),
+                shape = CircleShape,
+                border = BorderStroke(1.dp, pillAccent.copy(alpha = 0.45f)),
+                modifier = Modifier.testTag("about_version_badge")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
-                                        Color.Transparent
-                                    )
-                                )
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(pillAccent)
+                    )
+
+                    Text(
+                        text = "v${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 12.sp
+                        ),
+                        color = pillAccent
+                    )
+
+                    if (isMohModeActivated) {
+                        Text(
+                            text = "•",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = Color(0xFFFF80AB)
+                        )
+                        Text(
+                            text = "Muh Edition",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
                             ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_soniclet_app_logo),
-                            contentDescription = "Soniclet Logo",
-                            modifier = Modifier.size(56.dp),
-                            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary)
+                            color = Color(0xFFFF4081)
                         )
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(16.dp))
+            if (isMohModeActivated) {
+                Spacer(modifier = Modifier.height(10.dp))
 
-                Text(
-                    text = "Soniclet",
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 26.sp,
-                        letterSpacing = 0.4.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                Spacer(modifier = Modifier.height(5.dp))
-
-                Text(
-                    text = "Pure Offline Hi-Res Music Experience",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 0.2.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Emerald Version Pill (7-tap Easter Egg trigger preserved)
-                val pillAccent = if (isMohModeActivated) Color(0xFFFF4081) else EmeraldBadgeColor
                 Surface(
-                    onClick = {
-                        if (isMohModeActivated) {
-                            showExitMohDialog = true
-                        } else {
-                            versionTapCount++
-                            if (versionTapCount >= 7) {
-                                versionTapCount = 0
-                                showMohSecretDialog = true
-                            }
-                        }
-                    },
-                    color = pillAccent.copy(alpha = 0.14f),
                     shape = CircleShape,
-                    border = BorderStroke(1.dp, pillAccent.copy(alpha = 0.45f)),
-                    modifier = Modifier.testTag("about_version_badge")
+                    color = Color(0xFFFF1493).copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, Color(0xFFFF4081).copy(alpha = 0.35f))
                 ) {
                     Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(pillAccent)
-                        )
-
                         Text(
-                            text = "v${BuildConfig.VERSION_NAME}",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 12.sp
+                            text = "💖 Karisma / Muh Edition Active",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
                             ),
-                            color = pillAccent
+                            color = Color(0xFFFF80AB)
                         )
 
-                        if (isMohModeActivated) {
-                            Text(
-                                text = "•",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                color = Color(0xFFFF80AB)
-                            )
-                            Text(
-                                text = "Muh Edition",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
-                                ),
-                                color = Color(0xFFFF4081)
-                            )
-                        }
-                    }
-                }
-
-                if (isMohModeActivated) {
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color(0xFFFF1493).copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, Color(0xFFFF4081).copy(alpha = 0.35f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        TextButton(
+                            onClick = { showExitMohDialog = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(26.dp)
                         ) {
                             Text(
-                                text = "💖 Karisma / Muh Edition Active",
+                                text = "Exit Mode",
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.ExtraBold,
                                     fontSize = 11.sp
                                 ),
-                                color = Color(0xFFFF80AB)
+                                color = MaterialTheme.colorScheme.error
                             )
-
-                            TextButton(
-                                onClick = { showExitMohDialog = true },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                modifier = Modifier.height(26.dp)
-                            ) {
-                                Text(
-                                    text = "Exit Mode",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 11.sp
-                                    ),
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            }
                         }
                     }
                 }
             }
         }
 
+        EdgeHairlineDivider(startIndent = 16.dp, endIndent = 16.dp)
+
         // Section 1: Discover & Support
-        AboutSectionGroup(title = "DISCOVER & SUPPORT") {
-            AboutItemRow(
-                icon = Icons.Rounded.MenuBook,
-                title = "User Guide & Gestures",
-                subtitle = "Learn motion shortcuts, gestures, and audio engine features",
-                tag = "about_user_guide",
-                onClick = onOpenUserGuide
-            )
+        EdgeSectionHeader(title = "DISCOVER & SUPPORT")
 
-            AboutDivider()
+        AboutItemRow(
+            icon = Icons.Rounded.MenuBook,
+            title = "User Guide & Gestures",
+            subtitle = "Learn motion shortcuts, gestures, and audio engine features",
+            tag = "about_user_guide",
+            onClick = onOpenUserGuide
+        )
 
-            AboutItemRow(
-                icon = Icons.Rounded.BugReport,
-                title = "Report an Issue",
-                subtitle = "Send bug reports & ideas to $SONICLET_PRIMARY_EMAIL",
-                tag = "about_report_issue",
-                onClick = {
-                    launchSupportEmail(
-                        context = context,
-                        subject = "Soniclet v${BuildConfig.VERSION_NAME} Feedback / Support",
-                        body = "Device: ${Build.MANUFACTURER} ${Build.MODEL}\n" +
-                            "Android: ${Build.VERSION.RELEASE}\n" +
-                            "App Version: v${BuildConfig.VERSION_NAME}\n\n" +
-                            "Issue / Feedback:\n"
-                    )
-                }
-            )
+        EdgeHairlineDivider()
 
-            AboutDivider()
+        AboutItemRow(
+            icon = Icons.Rounded.BugReport,
+            title = "Report an Issue",
+            subtitle = "Send bug reports & ideas to $SONICLET_PRIMARY_EMAIL",
+            tag = "about_report_issue",
+            onClick = {
+                launchSupportEmail(
+                    context = context,
+                    subject = "Soniclet v${BuildConfig.VERSION_NAME} Feedback / Support",
+                    body = "Device: ${Build.MANUFACTURER} ${Build.MODEL}\n" +
+                        "Android: ${Build.VERSION.RELEASE}\n" +
+                        "App Version: v${BuildConfig.VERSION_NAME}\n\n" +
+                        "Issue / Feedback:\n"
+                )
+            }
+        )
 
-            AboutItemRow(
-                icon = ImageVector.vectorResource(id = R.drawable.ic_playstore),
-                title = "Rate on Play Store",
-                subtitle = "Support Soniclet with a 5-star review",
-                tag = "about_rate_play_store",
-                onClick = {
-                    if (!openUrlSafely(context, "market://details?id=${context.packageName}")) {
-                        if (!openUrlSafely(context, "https://play.google.com/store/apps/details?id=${context.packageName}")) {
-                            Toast.makeText(context, "Unable to open Play Store", Toast.LENGTH_SHORT).show()
-                        }
+        EdgeHairlineDivider()
+
+        AboutItemRow(
+            icon = ImageVector.vectorResource(id = R.drawable.ic_playstore),
+            title = "Rate on Play Store",
+            subtitle = "Support Soniclet with a 5-star review",
+            tag = "about_rate_play_store",
+            onClick = {
+                if (!openUrlSafely(context, "market://details?id=${context.packageName}")) {
+                    if (!openUrlSafely(context, "https://play.google.com/store/apps/details?id=${context.packageName}")) {
+                        Toast.makeText(context, "Unable to open Play Store", Toast.LENGTH_SHORT).show()
                     }
                 }
-            )
+            }
+        )
 
-            AboutDivider()
+        EdgeHairlineDivider()
 
-            AboutItemRow(
-                icon = Icons.Rounded.Email,
-                title = "Contact Developer",
-                subtitle = "$SONICLET_PRIMARY_EMAIL • Kexora Support",
-                tag = "about_contact_developer",
-                onClick = {
-                    launchSupportEmail(
-                        context = context,
-                        subject = "Soniclet v${BuildConfig.VERSION_NAME} Feedback / Support"
-                    )
-                }
-            )
-        }
+        AboutItemRow(
+            icon = Icons.Rounded.Email,
+            title = "Contact Developer",
+            subtitle = "$SONICLET_PRIMARY_EMAIL • Kexora Support",
+            tag = "about_contact_developer",
+            onClick = {
+                launchSupportEmail(
+                    context = context,
+                    subject = "Soniclet v${BuildConfig.VERSION_NAME} Feedback / Support"
+                )
+            }
+        )
 
         // Section 2: Legal & Policies
-        AboutSectionGroup(title = "LEGAL & POLICIES") {
-            AboutItemRow(
-                icon = Icons.Rounded.PrivacyTip,
-                title = "Privacy Policy",
-                subtitle = "100% offline, zero trackers — soniclet.kexora.in",
-                tag = "about_privacy_policy",
-                trailing = {
-                    Icon(
-                        Icons.Rounded.OpenInNew,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(17.dp)
-                    )
-                },
-                onClick = {
-                    if (!isDeviceOnline(context)) {
-                        showOfflinePrivacyDialog = true
-                    } else if (!openUrlSafely(context, SONICLET_PRIVACY_URL)) {
-                        showOfflinePrivacyDialog = true
-                    }
-                }
-            )
+        EdgeSectionHeader(title = "LEGAL & POLICIES")
 
-            AboutDivider()
-
-            AboutItemRow(
-                icon = Icons.Rounded.Description,
-                title = "Terms & Conditions",
-                subtitle = "Usage guidelines, licenses & legal terms",
-                tag = "about_terms",
-                trailing = {
-                    Icon(
-                        Icons.Rounded.OpenInNew,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(17.dp)
-                    )
-                },
-                onClick = {
-                    if (!openUrlSafely(context, SONICLET_TERMS_URL)) {
-                        Toast.makeText(context, "Unable to open soniclet.kexora.in/terms", Toast.LENGTH_SHORT).show()
-                    }
+        AboutItemRow(
+            icon = Icons.Rounded.PrivacyTip,
+            title = "Privacy Policy",
+            subtitle = "100% offline, zero trackers — soniclet.kexora.in",
+            tag = "about_privacy_policy",
+            trailing = {
+                Icon(
+                    Icons.Rounded.OpenInNew,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(17.dp)
+                )
+            },
+            onClick = {
+                if (!isDeviceOnline(context)) {
+                    showOfflinePrivacyDialog = true
+                } else if (!openUrlSafely(context, SONICLET_PRIVACY_URL)) {
+                    showOfflinePrivacyDialog = true
                 }
-            )
-        }
+            }
+        )
+
+        EdgeHairlineDivider()
+
+        AboutItemRow(
+            icon = Icons.Rounded.Description,
+            title = "Terms & Conditions",
+            subtitle = "Usage guidelines, licenses & legal terms",
+            tag = "about_terms",
+            trailing = {
+                Icon(
+                    Icons.Rounded.OpenInNew,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(17.dp)
+                )
+            },
+            onClick = {
+                if (!openUrlSafely(context, SONICLET_TERMS_URL)) {
+                    Toast.makeText(context, "Unable to open soniclet.kexora.in/terms", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
 
         // Section 3: Connect & Social Channels
-        AboutSectionGroup(title = "LET'S CONNECT") {
-            AboutSocialRow(
-                icon = Icons.Rounded.Language,
-                title = "Official Website",
-                handle = "soniclet.kexora.in",
-                tag = "about_website_soniclet",
-                onClick = {
-                    if (!openUrlSafely(context, SONICLET_WEBSITE_URL)) {
-                        Toast.makeText(context, "Unable to open website", Toast.LENGTH_SHORT).show()
-                    }
+        EdgeSectionHeader(title = "LET'S CONNECT")
+
+        AboutSocialRow(
+            icon = Icons.Rounded.Language,
+            title = "Official Website",
+            handle = "soniclet.kexora.in",
+            tag = "about_website_soniclet",
+            onClick = {
+                if (!openUrlSafely(context, SONICLET_WEBSITE_URL)) {
+                    Toast.makeText(context, "Unable to open website", Toast.LENGTH_SHORT).show()
                 }
-            )
+            }
+        )
 
-            AboutDivider()
+        EdgeHairlineDivider()
 
-            AboutSocialRow(
-                icon = Icons.Rounded.Public,
-                title = "Kexora Studio",
-                handle = "kexora.in",
-                tag = "about_website_kexora",
-                onClick = {
-                    if (!openUrlSafely(context, KEXORA_WEBSITE_URL)) {
-                        Toast.makeText(context, "Unable to open website", Toast.LENGTH_SHORT).show()
-                    }
+        AboutSocialRow(
+            icon = Icons.Rounded.Public,
+            title = "Kexora Studio",
+            handle = "kexora.in",
+            tag = "about_website_kexora",
+            onClick = {
+                if (!openUrlSafely(context, KEXORA_WEBSITE_URL)) {
+                    Toast.makeText(context, "Unable to open website", Toast.LENGTH_SHORT).show()
                 }
-            )
+            }
+        )
 
-            AboutDivider()
+        EdgeHairlineDivider()
 
-            AboutSocialRow(
-                icon = ImageVector.vectorResource(id = R.drawable.ic_instagram),
-                title = "Instagram",
-                handle = "@sonicletx",
-                tag = "about_instagram",
-                onClick = {
-                    if (!openUrlSafely(context, SONICLET_INSTAGRAM_URL)) {
-                        Toast.makeText(context, "Unable to open Instagram", Toast.LENGTH_SHORT).show()
-                    }
+        AboutSocialRow(
+            icon = ImageVector.vectorResource(id = R.drawable.ic_instagram),
+            title = "Instagram",
+            handle = "@sonicletx",
+            tag = "about_instagram",
+            onClick = {
+                if (!openUrlSafely(context, SONICLET_INSTAGRAM_URL)) {
+                    Toast.makeText(context, "Unable to open Instagram", Toast.LENGTH_SHORT).show()
                 }
-            )
+            }
+        )
 
-            AboutDivider()
+        EdgeHairlineDivider()
 
-            AboutSocialRow(
-                icon = ImageVector.vectorResource(id = R.drawable.ic_x),
-                title = "Twitter / X",
-                handle = "@kexora",
-                tag = "about_twitter",
-                onClick = {
-                    if (!openUrlSafely(context, "https://twitter.com/kexora")) {
-                        Toast.makeText(context, "Unable to open X", Toast.LENGTH_SHORT).show()
-                    }
+        AboutSocialRow(
+            icon = ImageVector.vectorResource(id = R.drawable.ic_x),
+            title = "Twitter / X",
+            handle = "@kexora",
+            tag = "about_twitter",
+            onClick = {
+                if (!openUrlSafely(context, "https://twitter.com/kexora")) {
+                    Toast.makeText(context, "Unable to open X", Toast.LENGTH_SHORT).show()
                 }
-            )
+            }
+        )
 
-            AboutDivider()
+        EdgeHairlineDivider()
 
-            AboutSocialRow(
-                icon = ImageVector.vectorResource(id = R.drawable.ic_youtube),
-                title = "YouTube",
-                handle = "@kexora",
-                tag = "about_youtube",
-                onClick = {
-                    if (!openUrlSafely(context, "https://youtube.com/@kexora")) {
-                        Toast.makeText(context, "Unable to open YouTube", Toast.LENGTH_SHORT).show()
-                    }
+        AboutSocialRow(
+            icon = ImageVector.vectorResource(id = R.drawable.ic_youtube),
+            title = "YouTube",
+            handle = "@kexora",
+            tag = "about_youtube",
+            onClick = {
+                if (!openUrlSafely(context, "https://youtube.com/@kexora")) {
+                    Toast.makeText(context, "Unable to open YouTube", Toast.LENGTH_SHORT).show()
                 }
-            )
+            }
+        )
 
-            AboutDivider()
+        EdgeHairlineDivider()
 
-            AboutSocialRow(
-                icon = ImageVector.vectorResource(id = R.drawable.ic_github),
-                title = "GitHub",
-                handle = "@kexora",
-                tag = "about_github",
-                onClick = {
-                    if (!openUrlSafely(context, "https://github.com/kexora")) {
-                        Toast.makeText(context, "Unable to open GitHub", Toast.LENGTH_SHORT).show()
-                    }
+        AboutSocialRow(
+            icon = ImageVector.vectorResource(id = R.drawable.ic_github),
+            title = "GitHub",
+            handle = "@kexora",
+            tag = "about_github",
+            onClick = {
+                if (!openUrlSafely(context, "https://github.com/kexora")) {
+                    Toast.makeText(context, "Unable to open GitHub", Toast.LENGTH_SHORT).show()
                 }
-            )
-        }
+            }
+        )
 
-        // Special Dedication & Tribute Card (Only visible when unlocked)
+        // Special Dedication & Tribute Section (Only visible when unlocked)
         if (isMohModeActivated && specialDate != null) {
-            AboutSectionGroup(title = "SPECIAL DEDICATION") {
-                Column(
+            EdgeSectionHeader(title = "SPECIAL DEDICATION", color = Color(0xFFE91E63))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE91E63).copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFE91E63).copy(alpha = 0.18f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Favorite,
-                            contentDescription = "Special Muse",
-                            tint = Color(0xFFE91E63),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = "To Our Secret Muse",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 15.sp),
-                        color = MaterialTheme.colorScheme.onSurface
+                    Icon(
+                        imageVector = Icons.Rounded.Favorite,
+                        contentDescription = "Special Muse",
+                        tint = Color(0xFFE91E63),
+                        modifier = Modifier.size(22.dp)
                     )
+                }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                    Text(
-                        text = "\"Dedicated to the sweetest inspiration behind Soniclet — bringing that endless 'muh' smile and magical beats! ✨\"",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontStyle = FontStyle.Italic,
-                            fontSize = 11.5.sp,
-                            lineHeight = 16.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
+                Text(
+                    text = "To Our Secret Muse",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 15.sp),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                    Button(
-                        onClick = { showLoveDiaryDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63)),
-                        shape = CircleShape,
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(vertical = 8.dp)
-                    ) {
-                        Icon(Icons.Rounded.MenuBook, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Open Love Notes & Diary 📖💖", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
-                    }
+                Text(
+                    text = "\"Dedicated to the sweetest inspiration behind Soniclet — bringing that endless 'muh' smile and magical beats! ✨\"",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontStyle = FontStyle.Italic,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                    OutlinedButton(
-                        onClick = { triggerLoveNotificationWithPermission() },
-                        shape = CircleShape,
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(vertical = 8.dp)
-                    ) {
-                        Icon(Icons.Rounded.Favorite, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Send Test Love Notification 💖", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
-                    }
+                Button(
+                    onClick = { showLoveDiaryDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63)),
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 10.dp)
+                ) {
+                    Icon(Icons.Rounded.MenuBook, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Open Love Notes & Diary 📖💖", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = { triggerLoveNotificationWithPermission() },
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 10.dp)
+                ) {
+                    Icon(Icons.Rounded.Favorite, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Send Test Love Notification 💖", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
                 }
             }
         }
@@ -881,38 +867,7 @@ fun AboutSettingsSubPage(
         }
 
         MadeInIndiaFooter()
-        Spacer(modifier = Modifier.height(safeBottomPadding))
-    }
-}
-
-@Composable
-private fun AboutSectionGroup(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
-                letterSpacing = 0.9.sp
-            ),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 10.dp, bottom = 6.dp)
-        )
-
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.14f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                content = content
-            )
-        }
+        EdgeSettingsBottomSpacer()
     }
 }
 
@@ -930,36 +885,28 @@ private fun AboutItemRow(
             .fillMaxWidth()
             .then(if (tag != null) Modifier.testTag(tag) else Modifier)
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(22.dp)
+        )
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(16.dp))
 
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(end = 8.dp)
+                .padding(end = 10.dp)
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp
                 ),
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -967,8 +914,8 @@ private fun AboutItemRow(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 11.5.sp,
-                    lineHeight = 15.sp
+                    fontSize = 12.5.sp,
+                    lineHeight = 16.5.sp
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -976,13 +923,6 @@ private fun AboutItemRow(
 
         if (trailing != null) {
             trailing()
-        } else {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.size(18.dp)
-            )
         }
     }
 }
@@ -1000,31 +940,23 @@ private fun AboutSocialRow(
             .fillMaxWidth()
             .then(if (tag != null) Modifier.testTag(tag) else Modifier)
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(22.dp)
+        )
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(16.dp))
 
         Text(
             text = title,
-            style = MaterialTheme.typography.bodyMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontWeight = FontWeight.Medium,
+                fontSize = 15.sp
             ),
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f)
@@ -1032,25 +964,17 @@ private fun AboutSocialRow(
 
         Surface(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f)
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
         ) {
             Text(
                 text = handle,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     color = MaterialTheme.colorScheme.primary
                 ),
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp)
             )
         }
     }
-}
-
-@Composable
-private fun AboutDivider() {
-    HorizontalDivider(
-        modifier = Modifier.padding(start = 48.dp),
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.14f)
-    )
 }

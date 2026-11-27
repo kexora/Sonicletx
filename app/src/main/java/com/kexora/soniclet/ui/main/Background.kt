@@ -46,10 +46,10 @@ fun rememberAppBackgroundMetrics(
         isDarkTheme
     ) {
         this.value = when {
-            uiState.isKariModeEnabled && uiState.currentSong != null && uiState.backgroundMode != "CUSTOM" -> {
+            uiState.isKariModeEnabled && uiState.backgroundMode != "CUSTOM" -> {
                 val topColor = Color(uiState.kariDominantColor ?: uiState.accentColor)
-                val midColor = Color(uiState.kariVibrantColor ?: uiState.accentColor)
-                val botColor = Color(uiState.kariDarkMutedColor ?: 0xFF0D0D0DL)
+                val midColor = Color(uiState.kariVibrantColor ?: 0xFF0B251CL)
+                val botColor = Color(uiState.kariDarkMutedColor ?: 0xFF070B09L)
                 BackgroundLuminanceDetector.analyzeGradient(listOf(topColor, midColor, botColor), 1f)
             }
             uiState.backgroundMode == "CUSTOM" && uiState.customBackgroundUri != null -> {
@@ -93,11 +93,14 @@ fun AppBackground(
     isDarkTheme: Boolean,
     currentBgMetrics: BackgroundMetrics
 ) {
-    if (uiState.isKariModeEnabled && uiState.currentSong != null && uiState.backgroundMode != "CUSTOM") {
-        // Dynamic Kari Mode Cover Art Gradient Background
+    if (uiState.isKariModeEnabled && uiState.backgroundMode != "CUSTOM") {
+        // Dynamic Glow (Kari Mode) Cover Art Gradient Background
+        val hasTrackPalette = uiState.currentSong != null && uiState.kariDominantColor != null
         val topColor = Color(uiState.kariDominantColor ?: uiState.accentColor)
-        val midColor = Color(uiState.kariVibrantColor ?: uiState.accentColor)
-        val botColor = Color(uiState.kariDarkMutedColor ?: 0xFF0D0D0DL)
+        val midColor = Color(uiState.kariVibrantColor ?: 0xFF0B251CL)
+        val botColor = Color(uiState.kariDarkMutedColor ?: 0xFF070B09L)
+        val topAlpha = if (hasTrackPalette) (uiState.kariOpacity * 0.88f).coerceIn(0.15f, 1f) else (uiState.kariOpacity * 0.34f).coerceIn(0.10f, 0.45f)
+        val midAlpha = if (hasTrackPalette) (uiState.kariOpacity * 0.58f).coerceIn(0.10f, 0.9f) else (uiState.kariOpacity * 0.45f).coerceIn(0.12f, 0.55f)
 
         Box(
             modifier = Modifier
@@ -112,10 +115,10 @@ fun AppBackground(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            topColor.copy(alpha = (uiState.kariOpacity * 0.88f).coerceIn(0.15f, 1f)),
-                            midColor.copy(alpha = (uiState.kariOpacity * 0.58f).coerceIn(0.10f, 0.9f)),
+                            topColor.copy(alpha = topAlpha),
+                            midColor.copy(alpha = midAlpha),
                             botColor.copy(alpha = uiState.kariOpacity.coerceIn(0.25f, 1f)),
-                            Color(0xFF080808)
+                            Color(0xFF070B09)
                         )
                     )
                 )

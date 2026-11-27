@@ -119,19 +119,19 @@ fun AppSidebarDrawer(
     excludedItemCount: Int = 0,
     sleepTimerOption: SleepTimerOption = SleepTimerOption.OFF,
     sleepTimerRemainingMs: Long = 0L,
-    isEqEnabled: Boolean = true,
+    isEqEnabled: Boolean = false,
     selectedEqPresetName: String = "Flat / Normal",
     isReverbEnabled: Boolean = false,
     isGaplessPlaybackEnabled: Boolean = true,
     isCrossfadeEnabled: Boolean = false,
     crossfadeDurationSeconds: Int = 3,
-    backgroundMode: String = "AMOLED",
-    isKariModeEnabled: Boolean = false,
+    backgroundMode: String = "DYNAMIC",
+    isKariModeEnabled: Boolean = true,
     isShakeEnabled: Boolean = false,
     isFlipToPauseEnabled: Boolean = false,
     isPocketModeEnabled: Boolean = false,
     isOneFingerSwipeBackEnabled: Boolean = true,
-    isVolumeEdgeSwipeEnabled: Boolean = true,
+    isVolumeEdgeSwipeEnabled: Boolean = false,
     onSetSleepTimer: (SleepTimerOption) -> Unit = {},
     onSetCustomSleepTimer: (Int) -> Unit = {},
     onOpenExcludedItems: (() -> Unit)? = null,
@@ -190,18 +190,21 @@ fun AppSidebarDrawer(
     Surface(
         modifier = Modifier
             .fillMaxHeight()
-            .fillMaxWidth(0.80f)
-            .widthIn(max = 312.dp)
+            .fillMaxWidth(0.82f)
+            .widthIn(max = 316.dp)
             .testTag("app_sidebar_drawer"),
-        color = MaterialTheme.colorScheme.surface,
+        color = Color(0xFF0A0F0D),
+        contentColor = Color.White,
         shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp, topEnd = 0.dp, bottomEnd = 0.dp),
-        tonalElevation = 2.dp
+        border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.08f)),
+        tonalElevation = 0.dp,
+        shadowElevation = 16.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Color(0xFF0A0F0D))
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
             // ==========================================
             // HEADER: SONICLET HEADPHONE EMBLEM + ACTIONS
@@ -486,8 +489,8 @@ fun AppSidebarDrawer(
                 modifier = Modifier
                     .weight(1f)
                     .verticalScroll(scrollState)
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 val q = searchQuery.trim().lowercase()
 
@@ -830,12 +833,17 @@ fun AppSidebarDrawer(
 
                 MadeInIndiaFooter(
                     topPadding = 16.dp,
-                    bottomPadding = 14.dp,
+                    bottomPadding = 8.dp,
                     watermarkAlpha = 0.5f,
                     fontSize = 9.5.sp,
                     logoHeight = 12.dp,
                     logoWidth = 64.dp,
                     heartSize = 9.dp
+                )
+                Spacer(
+                    modifier = Modifier
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .height(24.dp)
                 )
             }
         }
@@ -855,16 +863,16 @@ private fun QuickActionPill(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Box(contentAlignment = Alignment.TopEnd) {
             Surface(
                 onClick = onClick,
                 shape = CircleShape,
-                color = if (isActive) tint.copy(alpha = 0.20f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+                color = if (isActive) tint.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f),
                 border = BorderStroke(
-                    width = 1.dp,
-                    color = if (isActive) tint.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f)
+                    width = 0.8.dp,
+                    color = if (isActive) tint.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.09f)
                 ),
                 modifier = Modifier
                     .size(44.dp)
@@ -874,7 +882,7 @@ private fun QuickActionPill(
                     Icon(
                         imageVector = icon,
                         contentDescription = label,
-                        tint = if (isActive) tint else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (isActive) tint else Color.White.copy(alpha = 0.80f),
                         modifier = Modifier
                             .size(20.dp)
                             .then(if (iconRotation != 0f) Modifier.rotate(iconRotation) else Modifier)
@@ -896,10 +904,10 @@ private fun QuickActionPill(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall.copy(
-                fontSize = 9.5.sp,
+                fontSize = 10.sp,
                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium
             ),
-            color = if (isActive) tint else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (isActive) tint else Color.White.copy(alpha = 0.68f),
             maxLines = 1
         )
     }
@@ -910,12 +918,12 @@ private fun SidebarSectionHeader(title: String) {
     Text(
         text = title,
         style = MaterialTheme.typography.labelSmall.copy(
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 10.sp,
-            letterSpacing = 0.9.sp
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 11.sp,
+            letterSpacing = 1.0.sp
         ),
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-        modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 2.dp)
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.90f),
+        modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 4.dp)
     )
 }
 
@@ -933,100 +941,72 @@ private fun PillDrawerItemRow(
 ) {
     val actualBadgeColor = badgeColor ?: iconTint
     val containerColor = if (isSelected) {
-        iconTint.copy(alpha = 0.14f)
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
     } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f)
-    }
-    val borderColor = if (isSelected) {
-        iconTint.copy(alpha = 0.35f)
-    } else {
-        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.12f)
+        Color.Transparent
     }
 
-    Surface(
-        onClick = onClick,
-        color = containerColor,
-        shape = CircleShape,
-        border = BorderStroke(1.dp, borderColor),
+    Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(CircleShape)
+            .background(containerColor)
             .then(if (tag != null) Modifier.testTag(tag) else Modifier)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 8.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(iconTint.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = iconTint,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = if (isSelected) MaterialTheme.colorScheme.primary else iconTint,
+            modifier = Modifier.size(22.dp)
+        )
 
-            Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.width(14.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                    fontSize = 14.sp
+                ),
+                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.94f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!subtitle.isNullOrBlank()) {
                 Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp
                     ),
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = Color.White.copy(alpha = 0.56f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (!subtitle.isNullOrBlank()) {
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 10.sp,
-                            lineHeight = 12.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
             }
+        }
 
-            if (badge != null) {
-                Surface(
-                    shape = CircleShape,
-                    color = actualBadgeColor.copy(alpha = 0.16f),
-                    modifier = Modifier.padding(start = 6.dp)
-                ) {
-                    Text(
-                        text = badge,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold
-                        ),
-                        color = actualBadgeColor,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        maxLines = 1
-                    )
-                }
+        if (badge != null) {
+            Surface(
+                shape = CircleShape,
+                color = actualBadgeColor.copy(alpha = 0.16f),
+                modifier = Modifier.padding(start = 8.dp)
+            ) {
+                Text(
+                    text = badge,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = actualBadgeColor,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
+                    maxLines = 1
+                )
             }
-
-            Spacer(modifier = Modifier.width(4.dp))
-
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                modifier = Modifier.size(16.dp)
-            )
         }
     }
 }

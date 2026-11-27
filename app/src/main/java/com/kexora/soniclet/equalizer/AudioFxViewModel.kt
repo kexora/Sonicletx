@@ -134,6 +134,7 @@ internal class AudioFxViewModel(
 
     fun setEqEnabled(enabled: Boolean) {
         vm._uiState.update { it.copy(isEqEnabled = enabled) }
+        vm.prefs.edit().putBoolean("setting_eq_enabled", enabled).apply()
         try { equalizer?.enabled = enabled } catch (_: Exception) {}
     }
 

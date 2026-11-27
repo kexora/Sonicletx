@@ -261,6 +261,7 @@ interface AudioRepository {
     
     fun savePlaybackPosition(songId: Long, positionMs: Long)
     fun getSavedPlaybackPosition(songId: Long): Long
+    fun purgeInvalidPlaybackPositions(songs: List<Song>)
     val playbackPositions: StateFlow<Map<Long, Long>>
 
     val nowPlayingLayout: StateFlow<String>
@@ -495,16 +496,16 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
     private val _repeatMode = MutableStateFlow<String>(prefs.getString("setting_repeat_mode", "OFF") ?: "OFF")
     override val repeatMode: StateFlow<String> = _repeatMode.asStateFlow()
 
-    private val _appThemeName = MutableStateFlow<String>("SYSTEM")
+    private val _appThemeName = MutableStateFlow<String>("DARK")
     override val appThemeName: StateFlow<String> = _appThemeName.asStateFlow()
 
-    private val _isKariModeEnabled = MutableStateFlow<Boolean>(false)
+    private val _isKariModeEnabled = MutableStateFlow<Boolean>(true)
     override val isKariModeEnabled: StateFlow<Boolean> = _isKariModeEnabled.asStateFlow()
 
-    private val _kariBlur = MutableStateFlow<Float>(12f)
+    private val _kariBlur = MutableStateFlow<Float>(18f)
     override val kariBlur: StateFlow<Float> = _kariBlur.asStateFlow()
 
-    private val _kariOpacity = MutableStateFlow<Float>(0.9f)
+    private val _kariOpacity = MutableStateFlow<Float>(0.60f)
     override val kariOpacity: StateFlow<Float> = _kariOpacity.asStateFlow()
 
     private val _isShakeEnabled = MutableStateFlow<Boolean>(false)
@@ -514,11 +515,11 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
     override val isTwoFingerTapEnabled: StateFlow<Boolean> = _isTwoFingerTapEnabled.asStateFlow()
     private val _twoFingerTapAction = MutableStateFlow("Play/Pause")
     override val twoFingerTapAction: StateFlow<String> = _twoFingerTapAction.asStateFlow()
-    private val _isThreeFingerSwipeEnabled = MutableStateFlow(true)
+    private val _isThreeFingerSwipeEnabled = MutableStateFlow(false)
     override val isThreeFingerSwipeEnabled: StateFlow<Boolean> = _isThreeFingerSwipeEnabled.asStateFlow()
     private val _threeFingerSwipeAction = MutableStateFlow("Next/Previous")
     override val threeFingerSwipeAction: StateFlow<String> = _threeFingerSwipeAction.asStateFlow()
-    private val _isVolumeEdgeSwipeEnabled = MutableStateFlow(true)
+    private val _isVolumeEdgeSwipeEnabled = MutableStateFlow(false)
     override val isVolumeEdgeSwipeEnabled: StateFlow<Boolean> = _isVolumeEdgeSwipeEnabled.asStateFlow()
     private val _isLongPressDragSeekEnabled = MutableStateFlow(true)
     override val isLongPressDragSeekEnabled: StateFlow<Boolean> = _isLongPressDragSeekEnabled.asStateFlow()
@@ -531,7 +532,7 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
     
     private val _isMiniPlayerGesturesEnabled = MutableStateFlow(true)
     override val isMiniPlayerGesturesEnabled: StateFlow<Boolean> = _isMiniPlayerGesturesEnabled.asStateFlow()
-    private val _isFlipToPauseEnabled = MutableStateFlow(true)
+    private val _isFlipToPauseEnabled = MutableStateFlow(false)
     override val isFlipToPauseEnabled: StateFlow<Boolean> = _isFlipToPauseEnabled.asStateFlow()
     private val _flipToPauseAction = MutableStateFlow("Pause")
     override val flipToPauseAction: StateFlow<String> = _flipToPauseAction.asStateFlow()
@@ -540,17 +541,17 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
     private val _playTogetherFadeEnabled = MutableStateFlow(true)
     override val playTogetherFadeEnabled: StateFlow<Boolean> = _playTogetherFadeEnabled.asStateFlow()
 
-    private val _isWristTwistEnabled = MutableStateFlow(true)
+    private val _isWristTwistEnabled = MutableStateFlow(false)
     override val isWristTwistEnabled: StateFlow<Boolean> = _isWristTwistEnabled.asStateFlow()
     private val _wristTwistAction = MutableStateFlow("Favorite")
     override val wristTwistAction: StateFlow<String> = _wristTwistAction.asStateFlow()
-    private val _isPocketModeEnabled = MutableStateFlow(true)
+    private val _isPocketModeEnabled = MutableStateFlow(false)
     override val isPocketModeEnabled: StateFlow<Boolean> = _isPocketModeEnabled.asStateFlow()
     private val _pocketModeAction = MutableStateFlow("Auto-Play/Pause")
     override val pocketModeAction: StateFlow<String> = _pocketModeAction.asStateFlow()
     private val _shakeAction = MutableStateFlow("Shuffle")
     override val shakeAction: StateFlow<String> = _shakeAction.asStateFlow()
-    private val _isTiltToFastForwardEnabled = MutableStateFlow(true)
+    private val _isTiltToFastForwardEnabled = MutableStateFlow(false)
     override val isTiltToFastForwardEnabled: StateFlow<Boolean> = _isTiltToFastForwardEnabled.asStateFlow()
     private val _isAirWaveEnabled = MutableStateFlow(false)
     override val isAirWaveEnabled: StateFlow<Boolean> = _isAirWaveEnabled.asStateFlow()
@@ -561,7 +562,7 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
     private val _isCrossfadeEnabled = MutableStateFlow<Boolean>(false)
     override val isCrossfadeEnabled: StateFlow<Boolean> = _isCrossfadeEnabled.asStateFlow()
 
-    private val _isAutoResumeOnPlugEnabled = MutableStateFlow<Boolean>(false)
+    private val _isAutoResumeOnPlugEnabled = MutableStateFlow<Boolean>(true)
     override val isAutoResumeOnPlugEnabled: StateFlow<Boolean> = _isAutoResumeOnPlugEnabled.asStateFlow()
 
     private val _isAutoPlayOnBluetoothEnabled = MutableStateFlow<Boolean>(false)
@@ -582,7 +583,7 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
     private val _isGaplessPlaybackEnabled = MutableStateFlow<Boolean>(true)
     override val isGaplessPlaybackEnabled: StateFlow<Boolean> = _isGaplessPlaybackEnabled.asStateFlow()
 
-    private val _isResumeLastPositionEnabled = MutableStateFlow<Boolean>(true)
+    private val _isResumeLastPositionEnabled = MutableStateFlow<Boolean>(false)
     override val isResumeLastPositionEnabled: StateFlow<Boolean> = _isResumeLastPositionEnabled.asStateFlow()
 
     private val _crossfadeDurationSeconds = MutableStateFlow<Int>(3)
@@ -673,13 +674,13 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
             _customBackgroundUri.value = null
         }
         if (!prefs.contains("setting_bg_mode")) {
-            prefs.edit().putString("setting_bg_mode", "AMOLED").apply()
-            _backgroundMode.value = "AMOLED"
+            prefs.edit().putString("setting_bg_mode", "DYNAMIC").apply()
+            _backgroundMode.value = "DYNAMIC"
         } else {
-            _backgroundMode.value = prefs.getString("setting_bg_mode", "AMOLED") ?: "AMOLED"
+            _backgroundMode.value = prefs.getString("setting_bg_mode", "DYNAMIC") ?: "DYNAMIC"
         }
-        _bgImageBlur.value = prefs.getFloat("setting_bg_image_blur", 10f)
-        _bgImageDim.value = prefs.getFloat("setting_bg_image_dim", 0.5f)
+        _bgImageBlur.value = prefs.getFloat("setting_bg_image_blur", 18f)
+        _bgImageDim.value = prefs.getFloat("setting_bg_image_dim", 0.60f)
         _solidBgColor.value = prefs.getLong("setting_solid_bg_color", 0xFF121212L)
         _solidBgOpacity.value = prefs.getFloat("setting_solid_bg_opacity", 1.0f)
         _gradientPresetIndex.value = prefs.getInt("setting_gradient_preset", 0)
@@ -708,15 +709,15 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
             _appThemeName.value = prefs.getString("setting_app_theme", "DARK") ?: "DARK"
         }
         
-        _isKariModeEnabled.value = prefs.getBoolean("setting_kari_mode", false)
-        _kariBlur.value = prefs.getFloat("setting_kari_blur", 12f)
-        _kariOpacity.value = prefs.getFloat("setting_kari_opacity", 0.9f)
+        _isKariModeEnabled.value = prefs.getBoolean("setting_kari_mode", true)
+        _kariBlur.value = prefs.getFloat("setting_kari_blur", 18f)
+        _kariOpacity.value = prefs.getFloat("setting_kari_opacity", 0.60f)
         _isShakeEnabled.value = prefs.getBoolean("setting_shake_enabled", false)
         _isTwoFingerTapEnabled.value = prefs.getBoolean("setting_two_finger_tap_enabled", true)
         _twoFingerTapAction.value = prefs.getString("setting_two_finger_tap_action", "Play/Pause") ?: "Play/Pause"
-        _isThreeFingerSwipeEnabled.value = prefs.getBoolean("setting_three_finger_swipe_enabled", true)
+        _isThreeFingerSwipeEnabled.value = prefs.getBoolean("setting_three_finger_swipe_enabled", false)
         _threeFingerSwipeAction.value = prefs.getString("setting_three_finger_swipe_action", "Next/Previous") ?: "Next/Previous"
-        _isVolumeEdgeSwipeEnabled.value = prefs.getBoolean("setting_volume_edge_swipe_enabled", true)
+        _isVolumeEdgeSwipeEnabled.value = prefs.getBoolean("setting_volume_edge_swipe_enabled", false)
         _isLongPressDragSeekEnabled.value = prefs.getBoolean("setting_long_press_drag_seek_enabled", true)
 
         _isOneFingerSwipeBackEnabled.value = prefs.getBoolean("setting_one_finger_swipe_back_enabled", true)
@@ -733,15 +734,18 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
         _pocketModeAction.value = prefs.getString("setting_pocket_mode_action", "Auto-Play/Pause") ?: "Auto-Play/Pause"
         _shakeAction.value = prefs.getString("setting_shake_action", "Shuffle") ?: "Shuffle"
         _isTiltToFastForwardEnabled.value = prefs.getBoolean("setting_tilt_to_fast_forward_enabled", false)
+        _isAirWaveEnabled.value = prefs.getBoolean("setting_air_wave_enabled", false)
+        _airWaveAction.value = prefs.getString("setting_air_wave_action", "Play/Pause") ?: "Play/Pause"
+        _isPickUpToPlayEnabled.value = prefs.getBoolean("setting_pick_up_to_play_enabled", false)
         _isCrossfadeEnabled.value = prefs.getBoolean("setting_crossfade_enabled", false)
-        _isAutoResumeOnPlugEnabled.value = prefs.getBoolean("setting_auto_resume_on_plug", false)
+        _isAutoResumeOnPlugEnabled.value = prefs.getBoolean("setting_auto_resume_on_plug", true)
         _isAutoPlayOnBluetoothEnabled.value = prefs.getBoolean("setting_auto_play_on_bluetooth", false)
         _singleClickAction.value = prefs.getString("setting_single_click_action", "Play/Pause") ?: "Play/Pause"
         _doubleClickAction.value = prefs.getString("setting_double_click_action", "Next") ?: "Next"
         _tripleClickAction.value = prefs.getString("setting_triple_click_action", "Previous") ?: "Previous"
         _isHearingSafetyEnabled.value = prefs.getBoolean("setting_hearing_safety", true)
         _isGaplessPlaybackEnabled.value = prefs.getBoolean("setting_gapless_enabled", true)
-        _isResumeLastPositionEnabled.value = prefs.getBoolean("setting_resume_last_position", true)
+        _isResumeLastPositionEnabled.value = prefs.getBoolean("setting_resume_last_position", false)
         _crossfadeDurationSeconds.value = prefs.getInt("setting_crossfade_duration", 3)
         val hasAudioPerm = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             androidx.core.content.ContextCompat.checkSelfPermission(
@@ -877,18 +881,24 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
             }
         }
 
-        // Playback Positions Map
+        // Playback Positions Map (Step 3 guard: ignore and prune any stale entries < 10s)
         try {
             val posMap = mutableMapOf<Long, Long>()
+            val editor = prefs.edit()
+            var prunedStale = false
             prefs.all.forEach { (key, value) ->
                 if (key.startsWith("playback_pos_") && (value is Long || value is Int)) {
                     val songId = key.removePrefix("playback_pos_").toLongOrNull()
                     val pos = (value as? Long) ?: (value as? Int)?.toLong() ?: 0L
-                    if (songId != null && pos > 0L) {
+                    if (songId != null && pos >= ListeningHistoryRepository.EARLY_START_GUARD_MS) {
                         posMap[songId] = pos
+                    } else {
+                        editor.remove(key)
+                        prunedStale = true
                     }
                 }
             }
+            if (prunedStale) editor.apply()
             _playbackPositions.value = posMap
         } catch (e: Exception) {
             e.printStackTrace()
@@ -1970,11 +1980,12 @@ override fun setGradientBlur(blur: Float)
     )
 
     override fun savePlaybackPosition(songId: Long, positionMs: Long) {
-        if (positionMs <= 1000L) {
+        if (positionMs < ListeningHistoryRepository.EARLY_START_GUARD_MS) {
             prefs.edit().remove("playback_pos_$songId").apply()
             val current = _playbackPositions.value.toMutableMap()
-            current.remove(songId)
-            _playbackPositions.value = current
+            if (current.remove(songId) != null) {
+                _playbackPositions.value = current
+            }
         } else {
             prefs.edit().putLong("playback_pos_$songId", positionMs).apply()
             val current = _playbackPositions.value.toMutableMap()
@@ -1985,6 +1996,36 @@ override fun setGradientBlur(blur: Float)
 
     override fun getSavedPlaybackPosition(songId: Long): Long {
         return _playbackPositions.value[songId] ?: prefs.getLong("playback_pos_$songId", 0L)
+    }
+
+    override fun purgeInvalidPlaybackPositions(songs: List<Song>) {
+        if (songs.isEmpty()) return
+        val current = _playbackPositions.value
+        if (current.isEmpty()) return
+
+        val durationById = HashMap<Long, Long>(songs.size * 2)
+        for (song in songs) {
+            durationById[song.id] = song.duration
+        }
+
+        val updated = current.toMutableMap()
+        val editor = prefs.edit()
+        var changed = false
+
+        for ((songId, savedPos) in current) {
+            val durationMs = durationById[songId] ?: continue
+            val validated = ListeningHistoryRepository.resolveSmartResumePosition(savedPos, durationMs)
+            if (validated <= 0L) {
+                updated.remove(songId)
+                editor.remove("playback_pos_$songId")
+                changed = true
+            }
+        }
+
+        if (changed) {
+            editor.apply()
+            _playbackPositions.value = updated
+        }
     }
 
     private fun persistTrackFingerprintsLocked() {

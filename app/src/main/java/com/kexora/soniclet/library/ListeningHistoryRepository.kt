@@ -201,6 +201,53 @@ class ListeningHistoryRepository @Inject constructor(
     companion object {
         const val MIN_QUALIFIED_LISTEN_MS = 15_000L
 
+        // 6-Step Smart Resume Logic Engine canonical thresholds
+        const val COMPLETION_THRESHOLD_RATIO = 0.92f
+        const val NEAR_END_GUARD_MS = 10_000L
+        const val EARLY_START_GUARD_MS = 10_000L
+        const val MIN_RESUME_TRACK_DURATION_MS = 60_000L
+        const val CONTEXT_REWIND_MS = 2_000L
+
+        /**
+         * Step 2: Returns true when a track has reached >= 92% of its duration or is within
+         * the final 10 seconds, treating it as completed so near-end timestamps are never saved.
+         */
+        fun isTrackCompletedOrNearEnd(positionMs: Long, durationMs: Long): Boolean {
+            if (durationMs <= 0L) return false
+            val completionCutoffMs = (durationMs * COMPLETION_THRESHOLD_RATIO).toLong()
+            return positionMs >= completionCutoffMs || (durationMs - positionMs) <= NEAR_END_GUARD_MS
+        }
+
+        /**
+         * Steps 2 & 3: Sanitizes a track's position before persisting it for resume.
+         * Returns 0L (clear any saved entry) for short tracks (< 60s), early starts (< 10s),
+         * unknown durations, or tracks at/past the near-end completion threshold (>= 92% or <= 10s remaining).
+         */
+        fun sanitizePositionForResumeSave(positionMs: Long, durationMs: Long): Long {
+            if (durationMs in 1L until MIN_RESUME_TRACK_DURATION_MS) return 0L
+            if (positionMs < EARLY_START_GUARD_MS) return 0L
+            if (durationMs <= 0L) return 0L
+            if (isTrackCompletedOrNearEnd(positionMs, durationMs)) return 0L
+            return positionMs
+        }
+
+        /**
+         * Step 4: Strictly validates a stored timestamp before seeking on track load and applies
+         * a smooth 2-second context rewind cushion. Returns 0L when invalid/stale.
+         */
+        fun resolveSmartResumePosition(savedPos: Long, durationMs: Long): Long {
+            if (durationMs < MIN_RESUME_TRACK_DURATION_MS) return 0L
+            val completionCutoffMs = (durationMs * COMPLETION_THRESHOLD_RATIO).toLong()
+            val isValid = savedPos > EARLY_START_GUARD_MS &&
+                savedPos < (durationMs - NEAR_END_GUARD_MS) &&
+                savedPos < completionCutoffMs
+            return if (isValid) {
+                (savedPos - CONTEXT_REWIND_MS).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+        }
+
         fun buildCanonicalSongKey(song: Song): String {
             return buildCanonicalSongKey(
                 title = song.title,

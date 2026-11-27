@@ -5,16 +5,17 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -23,7 +24,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kexora.soniclet.player.CustomEqPreset
 import com.kexora.soniclet.settings.*
-import com.kexora.soniclet.ui.components.common.*
 
 private val REVERB_PRESETS_DATA = listOf(
     0.toShort() to "None",
@@ -54,6 +53,10 @@ private val REVERB_PRESETS_DATA = listOf(
 private val BASS_VIBRATION_MODES = listOf("DJ Club Bass", "Beat Drop Subwoofer", "Extreme Rave")
 private val DOLBY_PROFILES = listOf("Dolby Atmos Dynamic", "Cinema Surround", "Music Studio", "Night Clarity")
 
+/**
+ * Box-free, edge-to-edge Studio Equalizer & Sound FX Screen.
+ * Preserves 100% of DSP, EQ curve visualizer, vertical studio faders, bass haptics, 8D, Dolby, reverb, and loudness controls.
+ */
 @Composable
 fun EqualizerSettingsSubPage(
     isEqEnabled: Boolean,
@@ -109,7 +112,6 @@ fun EqualizerSettingsSubPage(
     var newPresetName by remember { mutableStateOf("") }
     var selectedDolbyProfile by remember { mutableStateOf("Dolby Atmos Dynamic") }
 
-    // Count of active audio sound processing features
     val activeEffectsCount = remember(
         isEqEnabled,
         isBassBoostEnabled,
@@ -144,580 +146,606 @@ fun EqualizerSettingsSubPage(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // ==========================================
-        // TOP HERO STATUS & RESET CARD (SAME AS EQ SHEET)
+        // BORDERLESS STUDIO SOUND ENGINE STATUS STRIP
         // ==========================================
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.weight(1f)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (activeEffectsCount > 0) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                        contentAlignment = Alignment.Center
+                Icon(
+                    imageVector = Icons.Rounded.Equalizer,
+                    contentDescription = null,
+                    tint = if (activeEffectsCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(26.dp)
+                )
+                Column {
+                    Text(
+                        text = "Studio Sound Engine",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            Icons.Rounded.Equalizer,
-                            contentDescription = null,
-                            tint = if (activeEffectsCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(26.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (activeEffectsCount > 0) Color(0xFF00E676)
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                )
                         )
-                    }
-                    Column {
                         Text(
-                            text = "Studio Sound Engine",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = if (activeEffectsCount > 0) "$activeEffectsCount Processors Active" else "Direct Audio / Bypass",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            ),
+                            color = if (activeEffectsCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (activeEffectsCount > 0) Color(0xFF00E676)
-                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                    )
-                            )
-                            Text(
-                                text = if (activeEffectsCount > 0) "$activeEffectsCount Processors Active" else "Direct Audio / Bypass",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = if (activeEffectsCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                     }
                 }
+            }
 
-                // Reset All to Flat / Neutral Button
-                FilledTonalIconButton(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (onResetAllAudioFx != null) {
-                            onResetAllAudioFx()
-                        } else {
-                            onResetEqualizer()
-                            onToggleBassBoost(false)
-                            onSetBassBoostLevel(0)
-                            onToggleVirtualizer(false)
-                            onSetVirtualizerLevel(0)
-                            onToggle8dAudio(false)
-                            onToggleDolby(false)
-                            onToggleReverb(false)
-                            onSetReverbPreset(0.toShort())
-                            onToggleVolumeBoost(false)
-                            onSetVolumeBoostLevel(100)
-                            onToggleBassVibration(false)
-                        }
-                        Toast.makeText(context, "Reset all audio effects to Flat", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.size(42.dp),
-                    shape = CircleShape,
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+            Surface(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    if (onResetAllAudioFx != null) {
+                        onResetAllAudioFx()
+                    } else {
+                        onResetEqualizer()
+                        onToggleBassBoost(false)
+                        onSetBassBoostLevel(0)
+                        onToggleVirtualizer(false)
+                        onSetVirtualizerLevel(0)
+                        onToggle8dAudio(false)
+                        onToggleDolby(false)
+                        onToggleReverb(false)
+                        onSetReverbPreset(0.toShort())
+                        onToggleVolumeBoost(false)
+                        onSetVolumeBoostLevel(100)
+                        onToggleBassVibration(false)
+                    }
+                    Toast.makeText(context, "Reset all audio effects to Flat", Toast.LENGTH_SHORT).show()
+                },
+                shape = CircleShape,
+                color = Color.White.copy(alpha = 0.08f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Icon(
-                        Icons.Rounded.RestartAlt,
+                        imageVector = Icons.Rounded.RestartAlt,
                         contentDescription = "Reset All Effects",
-                        modifier = Modifier.size(22.dp)
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Reset",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.5.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
         }
+
+        EdgeHairlineDivider(startIndent = 16.dp, endIndent = 16.dp)
 
         // ==========================================
         // SECTION 1: GRAPHIC EQUALIZER & PROFILES
         // ==========================================
-        Column(
+        EdgeSectionHeader(title = "GRAPHIC EQUALIZER")
+
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(22.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onToggleEq(!isEqEnabled)
+                }
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Header with Switch and Reset EQ
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.weight(1f)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isEqEnabled) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Rounded.GraphicEq,
-                            contentDescription = null,
-                            tint = if (isEqEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = "Graphic Equalizer",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (isEqEnabled) "Active • $selectedEqPresetName" else "Off • Bypassed signal",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (isEqEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (isEqEnabled) {
-                        OutlinedButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onResetEqualizer()
-                            },
-                            shape = CircleShape,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
-                        ) {
-                            Text("Reset EQ", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
-                        }
-                    }
-
-                    Switch(
-                        checked = isEqEnabled,
-                        onCheckedChange = { isChecked ->
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onToggleEq(isChecked)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.primary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
-                        )
-                    )
-                }
-            }
-
-            // Built-In Profiles Section
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Built-in Sound Profiles",
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                Icon(
+                    imageVector = Icons.Rounded.GraphicEq,
+                    contentDescription = null,
+                    tint = if (isEqEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
                 )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    PREBUILT_EQ_PRESETS.forEach { preset ->
-                        val isSelected = isEqEnabled && selectedEqPresetName.equals(preset.name, ignoreCase = true)
-                        val isSignaturePreset = preset.name.contains("Punch", ignoreCase = true) ||
-                                preset.name.contains("MUH", ignoreCase = true) ||
-                                preset.name.contains("Harmonic", ignoreCase = true)
-
-                        Surface(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                // Smart logic: applying preset will automatically ensure isEqEnabled = true!
-                                if (!isEqEnabled) {
-                                    onToggleEq(true)
-                                }
-                                onApplyPreset(
-                                    preset.name,
-                                    preset.levels,
-                                    preset.bass,
-                                    preset.vocal,
-                                    preset.treble,
-                                    preset.virtualizer
-                                )
-                            },
-                            shape = CircleShape,
-                            color = when {
-                                isSelected -> MaterialTheme.colorScheme.primary
-                                isSignaturePreset -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.8f)
-                                else -> MaterialTheme.colorScheme.surface
-                            },
-                            border = BorderStroke(
-                                if (isSelected || isSignaturePreset) 1.5.dp else 1.dp,
-                                when {
-                                    isSelected -> MaterialTheme.colorScheme.primary
-                                    isSignaturePreset -> MaterialTheme.colorScheme.tertiary
-                                    else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
-                                }
-                            )
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                if (isSignaturePreset) {
-                                    Icon(
-                                        Icons.Rounded.AutoAwesome,
-                                        contentDescription = null,
-                                        tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onTertiaryContainer,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                }
-                                Text(
-                                    text = preset.name,
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontWeight = if (isSelected || isSignaturePreset) FontWeight.Bold else FontWeight.Medium
-                                    ),
-                                    color = when {
-                                        isSelected -> MaterialTheme.colorScheme.onPrimary
-                                        isSignaturePreset -> MaterialTheme.colorScheme.onTertiaryContainer
-                                        else -> MaterialTheme.colorScheme.onSurface
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Custom Profiles Section
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column {
                     Text(
-                        text = "Custom Profiles",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Equalizer DSP",
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 15.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-                    OutlinedButton(
-                        onClick = { showSavePresetDialog = true },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        shape = CircleShape,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                    ) {
-                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Save Current", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
-                    }
-                }
-
-                if (customEqPresets.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        customEqPresets.forEach { customPreset ->
-                            val isSelected = isEqEnabled && selectedEqPresetName.equals(customPreset.name, ignoreCase = true)
-                            Surface(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    if (!isEqEnabled) {
-                                        onToggleEq(true)
-                                    }
-                                    onApplyPreset(
-                                        customPreset.name,
-                                        customPreset.levels,
-                                        customPreset.bass,
-                                        customPreset.vocal,
-                                        customPreset.treble,
-                                        customPreset.virtualizer
-                                    )
-                                },
-                                shape = CircleShape,
-                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = customPreset.name,
-                                        style = MaterialTheme.typography.labelMedium.copy(
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                        ),
-                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                    )
-                                    IconButton(
-                                        onClick = { onDeleteCustomPreset(customPreset.name) },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Close,
-                                            contentDescription = "Delete",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    Text(
+                        text = if (isEqEnabled) "Active • $selectedEqPresetName" else "Off • Pure unmodified signal",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                        color = if (isEqEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
-            // Real-Time Bezier EQ Curve Visualizer
-            EqCurveVisualizer(
-                levels = eqBandLevels,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(110.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                    .padding(8.dp)
-            )
-
-            // Studio Faders ("डंटी-डंटी")
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                eqBandLevels.forEachIndexed { index, level ->
-                    val freq = eqBandFrequencies.getOrElse(index) { "${index + 1}" }
-                    Column(
-                        modifier = Modifier.width(58.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                if (isEqEnabled) {
+                    Surface(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onResetEqualizer()
+                        },
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
                     ) {
                         Text(
-                            text = if (level > 0) "+${level / 100}" else "${level / 100}",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = if (level != 0 && isEqEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        StudioFader(
-                            value = level.toFloat(),
-                            onValueChange = { newLevel ->
-                                if (!isEqEnabled) {
-                                    onToggleEq(true)
-                                }
-                                onSetEqualizerBandLevel(index, newLevel.toInt())
-                            },
-                            valueRange = -1500f..1500f,
-                            modifier = Modifier
-                                .height(175.dp)
-                                .fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = freq,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "Flat",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            ),
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
                     }
                 }
+
+                Switch(
+                    checked = isEqEnabled,
+                    onCheckedChange = { isChecked ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onToggleEq(isChecked)
+                    },
+                    colors = sonicletSwitchColors()
+                )
             }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-
-            // Vocal Presence & Treble Air Sliders
-            SmartSliderRow(
-                title = "Vocal Booster & Clarity",
-                subtitle = "Enhance singer presence and dialogue clarity",
-                icon = Icons.Rounded.RecordVoiceOver,
-                enabled = isEqEnabled,
-                value = vocalBoostLevel.toFloat(),
-                valueRange = -1000f..1000f,
-                displayValue = if (vocalBoostLevel > 0) "+${vocalBoostLevel / 10}%" else "${vocalBoostLevel / 10}%",
-                onToggle = { isChecked ->
-                    if (isChecked && !isEqEnabled) onToggleEq(true)
-                    onSetVocalBoostLevel(if (isChecked) 400 else 0)
-                },
-                onValueChange = {
-                    if (!isEqEnabled) onToggleEq(true)
-                    onSetVocalBoostLevel(it.toInt())
-                }
-            )
-
-            SmartSliderRow(
-                title = "Treble Brightness & Air",
-                subtitle = "Crisp cymbals, airiness, and high-end detail",
-                icon = Icons.Rounded.Waves,
-                enabled = isEqEnabled,
-                value = trebleBoostLevel.toFloat(),
-                valueRange = 0f..1000f,
-                displayValue = "${(trebleBoostLevel / 10)}%",
-                onToggle = { isChecked ->
-                    if (isChecked && !isEqEnabled) onToggleEq(true)
-                    onSetTrebleBoostLevel(if (isChecked) 500 else 0)
-                },
-                onValueChange = {
-                    if (!isEqEnabled) onToggleEq(true)
-                    onSetTrebleBoostLevel(it.toInt())
-                }
-            )
         }
 
-        // ==========================================
-        // SECTION 2: POWER & LOW-END (BASS BOOST & DJ HAPTICS)
-        // ==========================================
-        Column(
+        // Built-In Profiles Edge-to-Edge LazyRow
+        Text(
+            text = "Built-in Sound Profiles",
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.Medium,
+                fontSize = 12.sp
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 6.dp)
+        )
+
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            items(PREBUILT_EQ_PRESETS) { preset ->
+                val isSelected = isEqEnabled && selectedEqPresetName.equals(preset.name, ignoreCase = true)
+                val isSignaturePreset = preset.name.contains("Punch", ignoreCase = true) ||
+                    preset.name.contains("MUH", ignoreCase = true) ||
+                    preset.name.contains("Harmonic", ignoreCase = true)
+
+                Surface(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        if (!isEqEnabled) {
+                            onToggleEq(true)
+                        }
+                        onApplyPreset(
+                            preset.name,
+                            preset.levels,
+                            preset.bass,
+                            preset.vocal,
+                            preset.treble,
+                            preset.virtualizer
+                        )
+                    },
+                    shape = CircleShape,
+                    color = when {
+                        isSelected -> MaterialTheme.colorScheme.primary
+                        isSignaturePreset -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
+                        else -> Color.White.copy(alpha = 0.07f)
+                    },
+                    border = BorderStroke(
+                        width = if (isSelected || isSignaturePreset) 1.dp else 0.6.dp,
+                        color = when {
+                            isSelected -> MaterialTheme.colorScheme.primary
+                            isSignaturePreset -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.55f)
+                            else -> Color.White.copy(alpha = 0.10f)
+                        }
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        if (isSignaturePreset) {
+                            Icon(
+                                Icons.Rounded.AutoAwesome,
+                                contentDescription = null,
+                                tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
+                        Text(
+                            text = preset.name,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = if (isSelected || isSignaturePreset) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp
+                            ),
+                            color = when {
+                                isSelected -> MaterialTheme.colorScheme.onPrimary
+                                isSignaturePreset -> MaterialTheme.colorScheme.onSurface
+                                else -> MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Custom Profiles Row
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(22.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Power & Low-End",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.primary
+                text = "Custom Profiles",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 12.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
-            // Hardware Bass Boost
-            SmartSliderRow(
-                title = "Hardware Bass Boost",
-                subtitle = "Punchy sub-bass resonance, warmth & kick",
-                icon = Icons.Rounded.Speaker,
-                enabled = isBassBoostEnabled,
-                value = bassBoostLevel.toFloat(),
-                valueRange = 0f..1000f,
-                displayValue = "${(bassBoostLevel / 10)}%",
-                onToggle = { isChecked ->
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onToggleBassBoost(isChecked)
-                    if (isChecked && bassBoostLevel == 0) {
-                        onSetBassBoostLevel(500)
-                    }
-                },
-                onValueChange = { newVal ->
-                    if (newVal > 0 && !isBassBoostEnabled) {
-                        onToggleBassBoost(true)
-                    }
-                    onSetBassBoostLevel(newVal.toInt())
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-
-            // DJ Bass Vibration (Physical Tactile Kick)
-            SmartSliderRow(
-                title = "DJ Bass Vibration",
-                subtitle = "Physical device haptic kick on low bass drops",
-                icon = Icons.Rounded.Vibration,
-                enabled = isBassVibrationEnabled,
-                value = bassVibrationStrength.toFloat(),
-                valueRange = 10f..100f,
-                displayValue = "$bassVibrationStrength%",
-                onToggle = { isChecked ->
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onToggleBassVibration(isChecked)
-                },
-                onValueChange = { newVal ->
-                    if (!isBassVibrationEnabled) onToggleBassVibration(true)
-                    onSetBassVibrationStrength(newVal.toInt())
-                }
-            )
-
-            AnimatedVisibility(
-                visible = isBassVibrationEnabled,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
+            Surface(
+                onClick = { showSavePresetDialog = true },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "Vibration Rhythm Style",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                Row(
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
                     )
+                    Text(
+                        text = "Save Current",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+        if (customEqPresets.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(customEqPresets) { customPreset ->
+                    val isSelected = isEqEnabled && selectedEqPresetName.equals(customPreset.name, ignoreCase = true)
+                    Surface(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            if (!isEqEnabled) onToggleEq(true)
+                            onApplyPreset(
+                                customPreset.name,
+                                customPreset.levels,
+                                customPreset.bass,
+                                customPreset.vocal,
+                                customPreset.treble,
+                                customPreset.virtualizer
+                            )
+                        },
+                        shape = CircleShape,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.07f),
+                        border = BorderStroke(
+                            0.8.dp,
+                            if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.12f)
+                        )
                     ) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            BASS_VIBRATION_MODES.forEach { mode ->
-                                val isSelected = bassVibrationMode.equals(mode, ignoreCase = true)
-                                Surface(
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onSetBassVibrationMode(mode)
-                                    },
-                                    shape = CircleShape,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                                    border = BorderStroke(
-                                        1.dp,
-                                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
-                                    )
-                                ) {
-                                    Text(
-                                        text = mode,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                        ),
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
+                            Text(
+                                text = customPreset.name,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                ),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                            IconButton(
+                                onClick = { onDeleteCustomPreset(customPreset.name) },
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = "Delete Preset",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(13.dp)
+                                )
                             }
                         }
+                    }
+                }
+            }
+        }
 
-                        FilledTonalButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onTestBassVibration()
-                            },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            shape = CircleShape
+        // Borderless Real-Time Bezier EQ Curve Visualizer directly over canvas
+        EqCurveVisualizer(
+            levels = eqBandLevels,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(108.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        )
+
+        // Vertical Studio Faders with generous edge padding
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            eqBandLevels.forEachIndexed { index, level ->
+                val freq = eqBandFrequencies.getOrElse(index) { "${index + 1}" }
+                Column(
+                    modifier = Modifier.width(56.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = if (level > 0) "+${level / 100}" else "${level / 100}",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        ),
+                        color = if (level != 0 && isEqEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    StudioFader(
+                        value = level.toFloat(),
+                        onValueChange = { newLevel ->
+                            if (!isEqEnabled) {
+                                onToggleEq(true)
+                            }
+                            onSetEqualizerBandLevel(index, newLevel.toInt())
+                        },
+                        valueRange = -1500f..1500f,
+                        modifier = Modifier
+                            .height(170.dp)
+                            .fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = freq,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+        EdgeHairlineDivider(startIndent = 16.dp, endIndent = 16.dp)
+
+        // Vocal Presence & Treble Air Sliders
+        SmartSliderRow(
+            title = "Vocal Booster & Clarity",
+            subtitle = "Enhance singer presence and dialogue clarity",
+            icon = Icons.Rounded.RecordVoiceOver,
+            enabled = isEqEnabled,
+            value = vocalBoostLevel.toFloat(),
+            valueRange = -1000f..1000f,
+            displayValue = if (vocalBoostLevel > 0) "+${vocalBoostLevel / 10}%" else "${vocalBoostLevel / 10}%",
+            onToggle = { isChecked ->
+                if (isChecked && !isEqEnabled) onToggleEq(true)
+                onSetVocalBoostLevel(if (isChecked) 400 else 0)
+            },
+            onValueChange = {
+                if (!isEqEnabled) onToggleEq(true)
+                onSetVocalBoostLevel(it.toInt())
+            }
+        )
+
+        EdgeHairlineDivider()
+
+        SmartSliderRow(
+            title = "Treble Brightness & Air",
+            subtitle = "Crisp cymbals, airiness, and high-end detail",
+            icon = Icons.Rounded.Waves,
+            enabled = isEqEnabled,
+            value = trebleBoostLevel.toFloat(),
+            valueRange = 0f..1000f,
+            displayValue = "${(trebleBoostLevel / 10)}%",
+            onToggle = { isChecked ->
+                if (isChecked && !isEqEnabled) onToggleEq(true)
+                onSetTrebleBoostLevel(if (isChecked) 500 else 0)
+            },
+            onValueChange = {
+                if (!isEqEnabled) onToggleEq(true)
+                onSetTrebleBoostLevel(it.toInt())
+            }
+        )
+
+        // ==========================================
+        // SECTION 2: POWER & LOW-END
+        // ==========================================
+        EdgeSectionHeader(title = "POWER & LOW-END")
+
+        SmartSliderRow(
+            title = "Hardware Bass Boost",
+            subtitle = "Punchy sub-bass resonance, warmth & kick",
+            icon = Icons.Rounded.Speaker,
+            enabled = isBassBoostEnabled,
+            value = bassBoostLevel.toFloat(),
+            valueRange = 0f..1000f,
+            displayValue = "${(bassBoostLevel / 10)}%",
+            onToggle = { isChecked ->
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onToggleBassBoost(isChecked)
+                if (isChecked && bassBoostLevel == 0) {
+                    onSetBassBoostLevel(500)
+                }
+            },
+            onValueChange = { newVal ->
+                if (newVal > 0 && !isBassBoostEnabled) {
+                    onToggleBassBoost(true)
+                }
+                onSetBassBoostLevel(newVal.toInt())
+            }
+        )
+
+        EdgeHairlineDivider()
+
+        SmartSliderRow(
+            title = "DJ Bass Vibration",
+            subtitle = "Physical device haptic kick synced to low bass drops",
+            icon = Icons.Rounded.Vibration,
+            enabled = isBassVibrationEnabled,
+            value = bassVibrationStrength.toFloat(),
+            valueRange = 10f..100f,
+            displayValue = "$bassVibrationStrength%",
+            onToggle = { isChecked ->
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onToggleBassVibration(isChecked)
+            },
+            onValueChange = { newVal ->
+                if (!isBassVibrationEnabled) onToggleBassVibration(true)
+                onSetBassVibrationStrength(newVal.toInt())
+            }
+        )
+
+        AnimatedVisibility(
+            visible = isBassVibrationEnabled,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Vibration Rhythm Style",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium, fontSize = 12.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Surface(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onTestBassVibration()
+                        },
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(Icons.Rounded.Vibration, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Test Kick", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                            Icon(
+                                Icons.Rounded.Vibration,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                "Test Kick",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(BASS_VIBRATION_MODES) { mode ->
+                        val isSelected = bassVibrationMode.equals(mode, ignoreCase = true)
+                        Surface(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onSetBassVibrationMode(mode)
+                            },
+                            shape = CircleShape,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.07f),
+                            border = if (isSelected) null else BorderStroke(0.6.dp, Color.White.copy(alpha = 0.10f))
+                        ) {
+                            Text(
+                                text = mode,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 12.sp
+                                ),
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                            )
                         }
                     }
                 }
@@ -725,206 +753,211 @@ fun EqualizerSettingsSubPage(
         }
 
         // ==========================================
-        // SECTION 3: SPATIAL & SOUNDSTAGE (3D, 8D, DOLBY, REVERB)
+        // SECTION 3: SPATIAL & SOUNDSTAGE
         // ==========================================
-        Column(
+        EdgeSectionHeader(title = "SPATIAL & SOUNDSTAGE")
+
+        SmartSliderRow(
+            title = "3D Surround Virtualizer",
+            subtitle = "Stereo expansion & room soundstage width",
+            icon = Icons.Rounded.SurroundSound,
+            enabled = isVirtualizerEnabled,
+            value = virtualizerLevel.toFloat(),
+            valueRange = 0f..1000f,
+            displayValue = "${(virtualizerLevel / 10)}%",
+            onToggle = { isChecked ->
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onToggleVirtualizer(isChecked)
+                if (isChecked && virtualizerLevel == 0) {
+                    onSetVirtualizerLevel(600)
+                }
+            },
+            onValueChange = { newVal ->
+                if (newVal > 0 && !isVirtualizerEnabled) {
+                    onToggleVirtualizer(true)
+                }
+                onSetVirtualizerLevel(newVal.toInt())
+            }
+        )
+
+        EdgeHairlineDivider()
+
+        // 8D Audio Rotation & Dolby Spatializer Sleek Pill Toggles
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(22.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(
-                text = "Spatial & Soundstage",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.secondary
-            )
-
-            // 3D Spatial Virtualizer
-            SmartSliderRow(
-                title = "3D Surround Virtualizer",
-                subtitle = "Stereo expansion & room soundstage width",
-                icon = Icons.Rounded.SurroundSound,
-                enabled = isVirtualizerEnabled,
-                value = virtualizerLevel.toFloat(),
-                valueRange = 0f..1000f,
-                displayValue = "${(virtualizerLevel / 10)}%",
+            QuickTogglePill(
+                modifier = Modifier.weight(1f),
+                label = "8D Audio Rotation",
+                subtitle = "Binaural Motion",
+                icon = Icons.Rounded.Headphones,
+                isActive = is8dAudioEnabled,
                 onToggle = { isChecked ->
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onToggleVirtualizer(isChecked)
-                    if (isChecked && virtualizerLevel == 0) {
-                        onSetVirtualizerLevel(600)
+                    onToggle8dAudio(isChecked)
+                    if (isChecked) {
+                        Toast.makeText(context, "Best experienced with headphones 🎧", Toast.LENGTH_SHORT).show()
                     }
-                },
-                onValueChange = { newVal ->
-                    if (newVal > 0 && !isVirtualizerEnabled) {
-                        onToggleVirtualizer(true)
-                    }
-                    onSetVirtualizerLevel(newVal.toInt())
                 }
             )
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-
-            // 8D Audio Rotation & Dolby Spatializer Cards
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                QuickToggleCard(
-                    modifier = Modifier.weight(1f),
-                    label = "8D Audio Rotation",
-                    subtitle = "Binaural Motion",
-                    icon = Icons.Rounded.Headphones,
-                    isActive = is8dAudioEnabled,
-                    onToggle = { isChecked ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onToggle8dAudio(isChecked)
-                        if (isChecked) {
-                            Toast.makeText(context, "Best experienced with headphones 🎧", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                )
-
-                QuickToggleCard(
-                    modifier = Modifier.weight(1f),
-                    label = "Dolby Surround",
-                    subtitle = "Cinema Dynamics",
-                    icon = Icons.Rounded.TheaterComedy,
-                    isActive = isDolbyEnabled,
-                    onToggle = { isChecked ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onToggleDolby(isChecked)
-                    }
-                )
-            }
-
-            AnimatedVisibility(
-                visible = isDolbyEnabled,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Dolby Audio Profile",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        DOLBY_PROFILES.forEach { profile ->
-                            val isSelected = (selectedDolbyProfile == profile)
-                            Surface(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    selectedDolbyProfile = profile
-                                },
-                                shape = CircleShape,
-                                color = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surface,
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
-                                )
-                            ) {
-                                Text(
-                                    text = profile,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                    ),
-                                    color = if (isSelected) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
+            QuickTogglePill(
+                modifier = Modifier.weight(1f),
+                label = "Dolby Surround",
+                subtitle = "Cinema Dynamics",
+                icon = Icons.Rounded.TheaterComedy,
+                isActive = isDolbyEnabled,
+                onToggle = { isChecked ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onToggleDolby(isChecked)
                 }
-            }
+            )
+        }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+        AnimatedVisibility(
+            visible = isDolbyEnabled,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Dolby Audio Profile",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium, fontSize = 12.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
 
-            // Reverb Environmental Acoustic Simulator
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
+                LazyRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.Waves,
-                            contentDescription = null,
-                            tint = if (isReverbEnabled && reverbPreset > 0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            text = "Environmental Reverb",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Switch(
-                        checked = isReverbEnabled,
-                        onCheckedChange = { isChecked ->
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onToggleReverb(isChecked)
-                            if (isChecked && reverbPreset == 0.toShort()) {
-                                onSetReverbPreset(2.toShort())
-                            }
-                        },
-                        modifier = Modifier.height(24.dp),
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.secondary,
-                            checkedTrackColor = MaterialTheme.colorScheme.secondaryContainer
-                        )
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    REVERB_PRESETS_DATA.forEach { (presetId, presetName) ->
-                        val isSelected = isReverbEnabled && (reverbPreset == presetId)
+                    items(DOLBY_PROFILES) { profile ->
+                        val isSelected = selectedDolbyProfile == profile
                         Surface(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (presetId == 0.toShort()) {
-                                    onSetReverbPreset(0.toShort())
-                                    onToggleReverb(false)
-                                } else {
-                                    if (!isReverbEnabled) onToggleReverb(true)
-                                    onSetReverbPreset(presetId)
-                                }
+                                selectedDolbyProfile = profile
                             },
                             shape = CircleShape,
-                            color = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(
-                                1.dp,
-                                if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
-                            )
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.07f),
+                            border = if (isSelected) null else BorderStroke(0.6.dp, Color.White.copy(alpha = 0.10f))
                         ) {
                             Text(
-                                text = presetName,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                text = profile,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 12.sp
                                 ),
-                                color = if (isSelected) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onSurface
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
+                }
+            }
+        }
+
+        EdgeHairlineDivider()
+
+        // Environmental Reverb
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val next = !isReverbEnabled
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onToggleReverb(next)
+                    if (next && reverbPreset == 0.toShort()) {
+                        onSetReverbPreset(2.toShort())
+                    }
+                }
+                .padding(horizontal = 16.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Waves,
+                    contentDescription = null,
+                    tint = if (isReverbEnabled && reverbPreset > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
+                )
+                Column {
+                    Text(
+                        text = "Environmental Reverb",
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 15.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Acoustic room & hall ambience simulator",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Switch(
+                checked = isReverbEnabled,
+                onCheckedChange = { isChecked ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onToggleReverb(isChecked)
+                    if (isChecked && reverbPreset == 0.toShort()) {
+                        onSetReverbPreset(2.toShort())
+                    }
+                },
+                colors = sonicletSwitchColors()
+            )
+        }
+
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 10.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(REVERB_PRESETS_DATA) { (presetId, presetName) ->
+                val isSelected = isReverbEnabled && (reverbPreset == presetId)
+                Surface(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        if (presetId == 0.toShort()) {
+                            onSetReverbPreset(0.toShort())
+                            onToggleReverb(false)
+                        } else {
+                            if (!isReverbEnabled) onToggleReverb(true)
+                            onSetReverbPreset(presetId)
+                        }
+                    },
+                    shape = CircleShape,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.07f),
+                    border = if (isSelected) null else BorderStroke(0.6.dp, Color.White.copy(alpha = 0.10f))
+                ) {
+                    Text(
+                        text = presetName,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 12.sp
+                        ),
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         }
@@ -932,142 +965,96 @@ fun EqualizerSettingsSubPage(
         // ==========================================
         // SECTION 4: MASTER LOUDNESS & HI-RES ENGINE
         // ==========================================
-        Column(
+        EdgeSectionHeader(title = "MASTER LOUDNESS & STUDIO FIDELITY")
+
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(22.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Text(
-                text = "Master Loudness & Studio Fidelity",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.error
-            )
-
-            // Lossless Hi-Res Audio Engine
-            Surface(
-                onClick = {
+                .clickable {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onToggleLossless(!isLosslessEnabled)
-                },
-                shape = RoundedCornerShape(16.dp),
-                color = if (isLosslessEnabled) Color(0xFF00E676).copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
-                border = BorderStroke(
-                    1.dp,
-                    if (isLosslessEnabled) Color(0xFF00E676).copy(alpha = 0.4f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
-                ),
-                modifier = Modifier.fillMaxWidth()
+                }
+                .padding(horizontal = 16.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 12.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF00E676).copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Rounded.Verified,
-                                contentDescription = null,
-                                tint = Color(0xFF00E676),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = "Lossless Hi-Res Audio Engine",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = if (isLosslessEnabled) "32-Bit Float Master • Zero dithering or compression" else "Standard playback format",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                                color = if (isLosslessEnabled) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-
-                    Switch(
-                        checked = isLosslessEnabled,
-                        onCheckedChange = { isChecked ->
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onToggleLossless(isChecked)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color(0xFF00E676),
-                            checkedTrackColor = Color(0xFF00E676).copy(alpha = 0.35f)
-                        )
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-
-            // Volume Booster (Hardware Loudness Gain)
-            SmartSliderRow(
-                title = "DSP Loudness Booster",
-                subtitle = "Hardware gain boost past 100% (Up to 300%)",
-                icon = Icons.Rounded.VolumeUp,
-                enabled = isVolumeBoostEnabled && volumeBoostLevel > 100,
-                value = volumeBoostLevel.toFloat(),
-                valueRange = 100f..300f,
-                displayValue = "${volumeBoostLevel}%",
-                onToggle = { isChecked ->
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onToggleVolumeBoost(isChecked)
-                    if (isChecked && volumeBoostLevel == 100) {
-                        onSetVolumeBoostLevel(130)
-                    } else if (!isChecked) {
-                        onSetVolumeBoostLevel(100)
-                    }
-                },
-                onValueChange = { newVal ->
-                    if (newVal > 100 && !isVolumeBoostEnabled) {
-                        onToggleVolumeBoost(true)
-                    }
-                    onSetVolumeBoostLevel(newVal.toInt())
-                }
-            )
-
-            if (volumeBoostLevel > 180) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f))
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.Warning,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(16.dp)
-                    )
+                Icon(
+                    imageVector = Icons.Rounded.Verified,
+                    contentDescription = null,
+                    tint = if (isLosslessEnabled) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
+                )
+                Column {
                     Text(
-                        text = "High gain may cause speaker distortion or hearing strain",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.error,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        text = "Lossless Hi-Res Audio Engine",
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 15.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (isLosslessEnabled) "32-Bit Float Master • Zero dithering or compression" else "Standard playback format",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                        color = if (isLosslessEnabled) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
+
+            Switch(
+                checked = isLosslessEnabled,
+                onCheckedChange = { isChecked ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onToggleLossless(isChecked)
+                },
+                colors = sonicletSwitchColors()
+            )
         }
 
-        Spacer(modifier = Modifier.height(com.kexora.soniclet.LocalPlayerBottomPadding.current + 8.dp))
+        EdgeHairlineDivider()
+
+        SmartSliderRow(
+            title = "DSP Loudness Booster",
+            subtitle = "Hardware gain boost past 100% (Up to 300%)",
+            icon = Icons.Rounded.VolumeUp,
+            enabled = isVolumeBoostEnabled && volumeBoostLevel > 100,
+            value = volumeBoostLevel.toFloat(),
+            valueRange = 100f..300f,
+            displayValue = "${volumeBoostLevel}%",
+            onToggle = { isChecked ->
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onToggleVolumeBoost(isChecked)
+                if (isChecked && volumeBoostLevel == 100) {
+                    onSetVolumeBoostLevel(130)
+                } else if (!isChecked) {
+                    onSetVolumeBoostLevel(100)
+                }
+            },
+            onValueChange = { newVal ->
+                if (newVal > 100 && !isVolumeBoostEnabled) {
+                    onToggleVolumeBoost(true)
+                }
+                onSetVolumeBoostLevel(newVal.toInt())
+            }
+        )
+
+        if (volumeBoostLevel > 180) {
+            EdgeInfoBanner(
+                icon = Icons.Rounded.Warning,
+                message = "High gain above 180% may cause speaker distortion or hearing strain.",
+                accentColor = MaterialTheme.colorScheme.error
+            )
+        }
+
+        EdgeSettingsBottomSpacer()
     }
 
     // Dialog: Save Custom Preset
@@ -1091,7 +1078,7 @@ fun EqualizerSettingsSubPage(
             text = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "Save current 5-band levels, bass boost, and soundstage settings:",
+                        text = "Save current band levels, bass boost, and soundstage settings:",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1137,12 +1124,8 @@ fun EqualizerSettingsSubPage(
     }
 }
 
-// -------------------------------------------------------------
-// REUSABLE MODERN COMPONENTS (SAME AS EQ SHEET)
-// -------------------------------------------------------------
-
 @Composable
-private fun QuickToggleCard(
+private fun QuickTogglePill(
     label: String,
     subtitle: String,
     icon: ImageVector,
@@ -1152,48 +1135,41 @@ private fun QuickToggleCard(
 ) {
     Surface(
         onClick = { onToggle(!isActive) },
-        shape = RoundedCornerShape(16.dp),
-        color = if (isActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        shape = CircleShape,
+        color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.06f),
         border = BorderStroke(
-            1.dp,
-            if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+            0.8.dp,
+            if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.10f)
         ),
         modifier = modifier
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = if (isActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                    color = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.5.sp
+                    ),
+                    color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = if (isActive) "Enabled" else subtitle,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    text = if (isActive) "Active" else subtitle,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                    color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1217,7 +1193,7 @@ private fun SmartSliderRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(
@@ -1227,35 +1203,34 @@ private fun SmartSliderRow(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f)
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 10.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    modifier = Modifier.size(22.dp)
+                )
                 Column {
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 15.sp
+                        ),
+                        color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f)
                     )
+                    Spacer(modifier = Modifier.height(1.dp))
                     Text(
                         text = subtitle,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 12.5.sp,
+                            lineHeight = 16.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -1266,16 +1241,16 @@ private fun SmartSliderRow(
             ) {
                 Text(
                     text = if (enabled) displayValue else "Off",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.5.sp
+                    ),
+                    color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
                 Switch(
                     checked = enabled,
                     onCheckedChange = onToggle,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = MaterialTheme.colorScheme.primary,
-                        checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
-                    )
+                    colors = sonicletSwitchColors()
                 )
             }
         }
@@ -1292,11 +1267,11 @@ private fun SmartSliderRow(
                 colors = SliderDefaults.colors(
                     thumbColor = MaterialTheme.colorScheme.primary,
                     activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                    inactiveTrackColor = Color.White.copy(alpha = 0.12f)
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp)
+                    .padding(start = 36.dp)
             )
         }
     }
@@ -1319,10 +1294,9 @@ fun EqCurveVisualizer(levels: List<Int>, modifier: Modifier = Modifier) {
         val minLevel = -1500f
         val range = maxLevel - minLevel
 
-        // Zero dB Reference Line
         val zeroY = height / 2f
         drawLine(
-            color = Color.Gray.copy(alpha = 0.25f),
+            color = Color.White.copy(alpha = 0.14f),
             start = Offset(0f, zeroY),
             end = Offset(width, zeroY),
             strokeWidth = 2f,
@@ -1337,7 +1311,6 @@ fun EqCurveVisualizer(levels: List<Int>, modifier: Modifier = Modifier) {
             Offset(x, y)
         }
 
-        // Build smooth bezier curve path
         val path = Path()
         path.moveTo(points.first().x, points.first().y)
 
@@ -1351,15 +1324,14 @@ fun EqCurveVisualizer(levels: List<Int>, modifier: Modifier = Modifier) {
             path.cubicTo(cx1, cy1, cx2, cy2, p1.x, p1.y)
         }
 
-        // Glow stroke layers
         drawPath(
             path = path,
-            color = primaryColor.copy(alpha = 0.15f),
+            color = primaryColor.copy(alpha = 0.14f),
             style = Stroke(width = 24f, cap = StrokeCap.Round)
         )
         drawPath(
             path = path,
-            color = primaryColor.copy(alpha = 0.35f),
+            color = primaryColor.copy(alpha = 0.34f),
             style = Stroke(width = 10f, cap = StrokeCap.Round)
         )
         drawPath(
@@ -1368,7 +1340,6 @@ fun EqCurveVisualizer(levels: List<Int>, modifier: Modifier = Modifier) {
             style = Stroke(width = 4f, cap = StrokeCap.Round)
         )
 
-        // Draw frequency node dots
         points.forEach { pt ->
             drawCircle(
                 color = Color.White,
@@ -1431,7 +1402,6 @@ fun StudioFader(
             val w = size.width
             val h = size.height
 
-            // Background track line
             drawLine(
                 color = trackColor,
                 start = Offset(w / 2f, 10f),
@@ -1440,7 +1410,6 @@ fun StudioFader(
                 cap = StrokeCap.Round
             )
 
-            // Zero dB tick mark
             drawLine(
                 color = trackColor,
                 start = Offset(w / 2f - 14f, h / 2f),
@@ -1449,12 +1418,10 @@ fun StudioFader(
                 cap = StrokeCap.Round
             )
 
-            // Calculate active thumb position
             val range = valueRange.endInclusive - valueRange.start
             val normalized = (value - valueRange.start) / range
             val thumbY = (h - 20f) - (normalized * (h - 20f)) + 10f
 
-            // Active track fill
             val zeroY = h / 2f
             if (value != 0f) {
                 drawLine(
@@ -1466,7 +1433,6 @@ fun StudioFader(
                 )
             }
 
-            // Thumb Pill Shape
             val thumbWidth = 40f
             val thumbHeight = 16f
             drawRoundRect(
@@ -1475,7 +1441,6 @@ fun StudioFader(
                 size = androidx.compose.ui.geometry.Size(thumbWidth, thumbHeight),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f)
             )
-            // Thumb inner glow line
             drawLine(
                 color = if (value != 0f) primaryColor else Color.Gray,
                 start = Offset(w / 2f - thumbWidth / 2.5f, thumbY),
