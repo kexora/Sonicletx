@@ -1,0 +1,85 @@
+<resources>
+    <string name="app_name">Soniclet</string>
+    <string name="widget_adaptive_name">Soniclet Adaptive Widget</string>
+    <string name="widget_card_name">Soniclet Card Player</string>
+    <string name="widget_vinyl_name">Soniclet Retro Vinyl</string>
+    <string name="widget_pro_name">Soniclet Pro Deck</string>
+    <string name="widget_description">Soniclet Music Player playback widget</string>
+
+    <!-- Romantic Messages for Special Dates (Muh / Moon Mode) -->
+    <string-array name="muh_mode_romantic_messages">
+        <item>Happy Birthday to my most favourite person in the entire universe! 🎂❤️</item>
+        <item>मेरी प्यारी करिश्मा, जन्मदिन की ढेर सारी बधाइयां! हमेशा मुस्कुराती रहो! 💖✨</item>
+        <item>May your life be as sweet as your smile and as beautiful as your heart! 🌸</item>
+        <item>Sending you infinite hugs and kisses today! Happy Birthday Meri Jaan! 💋🎉</item>
+        <item>You make every single day feel magical. Enjoy your special day! 🌟🎂</item>
+        <item>Happy Birthday Karishma! May all your secret dreams come true today! 🎈💖</item>
+        <item>आज का दिन सिर्फ और सिर्फ तुम्हारी खुशियों का है! Love you infinity! ♾️❤️</item>
+        <item>A musical heartbeat dedicated to the queen of my heart on her special day! 🎵👑</item>
+        <item>Happy Birthday sweet heart! You are the best thing that ever happened to me! 🌹</item>
+        <item>Another year more beautiful, more adorable, and forever mine! Happy Birthday! 🎂💑</item>
+        <item>मेरी करिश्मा, तुम्हें दुनिया की हर खुशी मिले! जन्मदिन मुबारक हो! 💐✨</item>
+        <item>Listening to music and thinking only about you on this special day! 🎧💖</item>
+        <item>That very first conversation still echoes in my heart. Happy Anniversary! 📞❤️</item>
+        <item>You said YES to my heart, and made me the happiest person alive! 💍✨</item>
+        <item>करिश्मा, तुम सिर्फ मेरा प्यार नहीं, मेरी जिंदगी का सबसे खूबसूरत तोहफा हो! 💖💍</item>
+        <item>Holding your hand is still the best feeling ever. Forever yours! 🤝❤️</item>
+    </string-array>
+
+    <!-- Soniclet Radio Tab & Offline Support -->
+    <string name="radio_tab_title">Radio</string>
+    <string name="radio_drawer_title">Live Radio</string>
+    <string name="radio_drawer_subtitle">Curated stations &amp; saved offline tracks</string>
+    <string name="radio_drawer_badge">LIVE</string>
+    <string name="radio_loading_title">Tuning in…</string>
+    <string name="radio_loading_subtitle">Preparing your live audio experience</string>
+    <string name="radio_slow_connection_title">Slow connection detected</string>
+    <string name="radio_slow_connection_subtitle">Still connecting… hang tight or tap retry</string>
+    <string name="radio_offline_never_loaded_title">You\'re Offline</string>
+    <string name="radio_offline_never_loaded_body">Connect to Wi-Fi or mobile data to load Soniclet Radio for the first time. Once loaded, this screen and your played songs will be saved locally for offline listening.</string>
+    <string name="radio_connection_error_title">Unable to Connect</string>
+    <string name="radio_connection_error_body">Your internet connection looks very slow or unstable right now. Please check your network and try again.</string>
+    <string name="radio_try_again">Try Again</string>
+    <string name="radio_offline_saved_banner">Offline mode • Saved locally</string>
+    <string name="radio_offline_saved_tracks_chip">%1$d saved</string>
+    <string name="radio_back_online_banner">Back online • Tap to refresh</string>
+    <string name="radio_saved_tracks_sheet_title">Saved Offline Tracks</string>
+    <string name="radio_saved_tracks_sheet_subtitle">Songs played in Radio are cached locally so you can replay them anytime without internet.</string>
+    <string name="radio_saved_tracks_empty">Play any song while online and it will automatically be saved here for offline playback.</string>
+    <string name="radio_play_all_saved">Play All</string>
+    <string name="radio_clear_saved_cache">Clear Cache</string>
+    <string name="radio_playing_offline_toast">Playing saved track offline</string>
+    <string name="radio_cd_offline_tracks">View saved offline tracks</string>
+    <string name="radio_cd_refresh">Refresh Radio</string>
+    <string name="radio_stop_button">Stop Radio</string>
+    <string name="radio_turn_off">Turn Off</string>
+    <string name="radio_status_live">Live Radio</string>
+    <string name="radio_status_paused">Radio Paused</string>
+    <string name="radio_status_ready">Tap Play to listen</string>
+    <string name="radio_live_banner_subtitle">Live Radio • Tap to open</string>
+    <string name="radio_paused_banner_subtitle">Radio Paused • Tap to open</string>
+    <string name="radio_cd_stop">Stop Radio</string>
+    <string name="radio_cd_play">Play Radio</string>
+    <string name="radio_cd_pause">Pause Radio</string>
+    <string name="radio_connect_toggle_label">Connect Radio</string>
+    <string name="radio_connected_status">Connected</string>
+    <string name="radio_disconnected_status">Disconnected</string>
+    <string name="radio_disconnected_title">Radio is Disconnected</string>
+    <string name="radio_disconnected_subtitle">Turn on Connect Radio to listen</string>
+    <string name="radio_connect_button">Connect Radio</string>
+
+    <!-- Compatibility Strings for Legacy Web Preview -->
+    <string name="web_preview_unable_open_external">Unable to open external link</string>
+    <string name="web_preview_secure_connection">Secure connection</string>
+    <string name="web_preview_cd_back">Back</string>
+    <string name="web_preview_cd_forward">Forward</string>
+    <string name="web_preview_cd_home">Home</string>
+    <string name="web_preview_cd_stop">Stop loading</string>
+    <string name="web_preview_cd_reload">Reload</string>
+    <string name="web_preview_cd_open_browser">Open in browser</string>
+    <string name="web_preview_loading">Loading…</string>
+    <string name="web_preview_error_title">Failed to load page</string>
+    <string name="web_preview_error_subtitle">Please check your internet connection and try again.</string>
+    <string name="web_preview_retry">Retry</string>
+    <string name="web_preview_open_in_browser">Open in Browser</string>
+</resources>
