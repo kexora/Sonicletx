@@ -27,7 +27,11 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -38,9 +42,10 @@ import com.kexora.soniclet.equalizer.*
 import com.kexora.soniclet.lyrics.*
 import com.kexora.soniclet.tools.*
 import com.kexora.soniclet.ui.components.common.FadingMarqueeText
-import com.kexora.soniclet.ui.components.common.cleanSongTitle
 import com.kexora.soniclet.ui.components.player.*
 import com.kexora.soniclet.utils.ArtistParserUtil
+import com.kexora.soniclet.utils.SmartTitleCleaner
+import com.kexora.soniclet.utils.StoryShareCardGenerator
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
@@ -66,6 +71,7 @@ fun Dhun(
     viewModel: MusicViewModel,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val currentPositionState = viewModel.currentPosition.collectAsState()
     val isPlaying = uiState.isPlaying
     val currentPosition = currentPositionState.value
@@ -87,6 +93,7 @@ fun Dhun(
     var isQueueDrawerExpanded by remember { mutableStateOf(false) }
     var queueDrawerTab by remember { mutableIntStateOf(0) } // 0: Up Next, 1: Lyrics
     var showLyricsInLandscape by remember { mutableStateOf(false) }
+    var isInlineLyricsVisible by remember(song.id) { mutableStateOf(false) }
     var showMoreOptionsSheet by remember { mutableStateOf(false) }
     var showAudioInspectorSheet by remember { mutableStateOf(false) }
     var showMoodDialog by remember { mutableStateOf(false) }
@@ -100,13 +107,19 @@ fun Dhun(
         sheetOffsetY.snapTo(0f)
     }
 
+    LaunchedEffect(song.id, isInlineLyricsVisible) {
+        if (isInlineLyricsVisible && currentLyrics.isEmpty()) {
+            viewModel.loadLyricsForSong(song)
+        }
+    }
+
     val dismissSheet: () -> Unit = { onDismiss() }
 
     BackHandler {
-        if (isQueueDrawerExpanded) {
-            isQueueDrawerExpanded = false
-        } else {
-            dismissSheet()
+        when {
+            isQueueDrawerExpanded -> isQueueDrawerExpanded = false
+            isInlineLyricsVisible -> isInlineLyricsVisible = false
+            else -> dismissSheet()
         }
     }
 
@@ -152,10 +165,11 @@ fun Dhun(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
+    // Tactile pause scale-down (0.93f) & spring back to 1.0f when playing
     val artScale by animateFloatAsState(
-        targetValue = if (isPlaying) 1.025f else 1.0f,
+        targetValue = if (isPlaying) 1.0f else 0.93f,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
+            dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
         ),
         label = "artwork_play_scale"
@@ -178,7 +192,7 @@ fun Dhun(
 
     val auraGlowScale by infiniteTransition.animateFloat(
         initialValue = 0.94f,
-        targetValue = if (isPlaying) 1.08f else 1.0f,
+        targetValue = if (isPlaying) 1.06f else 0.96f,
         animationSpec = infiniteRepeatable(
             animation = tween(2800, easing = FastOutSlowInEasing),
             repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
@@ -187,8 +201,8 @@ fun Dhun(
     )
 
     val auraGlowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = if (isPlaying) 0.55f else 0.2f,
+        initialValue = 0.24f,
+        targetValue = if (isPlaying) 0.52f else 0.18f,
         animationSpec = infiniteRepeatable(
             animation = tween(2800, easing = FastOutSlowInEasing),
             repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
@@ -201,6 +215,13 @@ fun Dhun(
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "favorite_scale"
     )
+
+    val cleanedTitle = remember(song.title, song.filePath) {
+        SmartTitleCleaner.cleanTitle(song.title, song.filePath)
+    }
+    val playingFromLabel = remember(uiState.queueSourceTitle, song.folderName) {
+        uiState.queueSourceTitle.ifBlank { song.folderName.ifBlank { "Music Library" } }
+    }
 
     Box(
         modifier = Modifier
@@ -226,55 +247,36 @@ fun Dhun(
             val isWideOrTablet = totalWidth >= 580.dp && (totalWidth / totalHeight) > 0.72f
             val isLandscapeLayout = isLandscape || isWideOrTablet || (totalWidth > totalHeight * 1.15f)
             val isCompactHeight = totalHeight < 680.dp
-            val isVeryCompactHeight = totalHeight < 560.dp
-            val isTallScreen = totalHeight >= 820.dp && (totalHeight / totalWidth) >= 2.05f
+            val isVeryCompactHeight = totalHeight < 580.dp
 
-            val targetArtSize = when {
-                isVeryCompactHeight -> (totalHeight * 0.28f).coerceIn(130.dp, 190.dp)
-                isCompactHeight -> (totalHeight * 0.33f).coerceIn(170.dp, 240.dp)
-                totalHeight < 760.dp -> (totalHeight * 0.38f).coerceIn(210.dp, 290.dp)
-                isTallScreen -> (minOf(totalWidth * 0.82f, 350.dp)).coerceIn(270.dp, 350.dp)
-                else -> (minOf(totalWidth * 0.80f, totalHeight * 0.40f, 330.dp)).coerceIn(220.dp, 330.dp)
+            val maxPortraitArtHeight = when {
+                isVeryCompactHeight -> (totalHeight * 0.34f).coerceIn(160.dp, 220.dp)
+                isCompactHeight -> (totalHeight * 0.40f).coerceIn(220.dp, 290.dp)
+                else -> minOf(totalWidth - 32.dp, totalHeight * 0.46f, 410.dp)
             }
 
             val playButtonSize = when {
-                isVeryCompactHeight -> 54.dp
-                isCompactHeight -> 62.dp
-                else -> 72.dp
+                isVeryCompactHeight -> 58.dp
+                isCompactHeight -> 64.dp
+                else -> 68.dp
             }
 
             val playIconSize = when {
-                isVeryCompactHeight -> 28.dp
+                isVeryCompactHeight -> 30.dp
                 isCompactHeight -> 34.dp
-                else -> 38.dp
+                else -> 36.dp
             }
 
             val skipButtonSize = when {
-                isVeryCompactHeight -> 38.dp
-                isCompactHeight -> 44.dp
+                isVeryCompactHeight -> 48.dp
                 else -> 48.dp
             }
-
-            val titleFontSize = when {
-                isVeryCompactHeight -> 19.sp
-                isCompactHeight -> 22.sp
-                else -> 25.sp
-            }
-
-            val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .statusBarsPadding()
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(sheetDragModifier)
-                        .padding(vertical = 4.dp)
-                )
-
                 if (isLandscapeLayout) {
                     Row(
                         modifier = Modifier
@@ -337,15 +339,17 @@ fun Dhun(
                                 .fillMaxHeight()
                                 .verticalScroll(rememberScrollState())
                                 .padding(horizontal = 8.dp)
-                                .windowInsetsPadding(WindowInsets.navigationBars),
+                                .navigationBarsPadding(),
                             verticalArrangement = Arrangement.SpaceEvenly,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             FadingMarqueeText(
-                                text = cleanSongTitle(song),
+                                text = cleanedTitle,
                                 style = MaterialTheme.typography.titleLarge.copy(
                                     fontWeight = FontWeight.Black,
-                                    fontSize = 22.sp
+                                    fontSize = 21.sp,
+                                    lineHeight = 27.sp,
+                                    platformStyle = PlatformTextStyle(includeFontPadding = true)
                                 ),
                                 color = MaterialTheme.colorScheme.onSurface,
                                 delayMillis = 2000L,
@@ -362,7 +366,7 @@ fun Dhun(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = song.artist,
+                                    text = SmartTitleCleaner.cleanArtist(song.artist).ifBlank { "Unknown Artist" },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = if (isKariModeEnabled) animatedVibrant else MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -375,7 +379,9 @@ fun Dhun(
                                         imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Rounded.FavoriteBorder,
                                         contentDescription = "Favorite",
                                         tint = if (isFavorite) Color(0xFFFF3366) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(28.dp).scale(favoriteScale)
+                                        modifier = Modifier
+                                            .size(26.dp)
+                                            .scale(favoriteScale)
                                     )
                                 }
                             }
@@ -401,7 +407,7 @@ fun Dhun(
                                 animatedVibrant = animatedVibrant,
                                 playButtonSize = 62.dp,
                                 playIconSize = 34.dp,
-                                skipButtonSize = 44.dp,
+                                skipButtonSize = 48.dp,
                                 isCompactHeight = true,
                                 arrangement = Arrangement.SpaceEvenly
                             )
@@ -424,53 +430,167 @@ fun Dhun(
                         }
                     }
                 } else {
+                    // FLAGSHIP EDGE-TO-EDGE FULL-SCREEN PORTRAIT NOW PLAYING
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 24.dp, vertical = 2.dp)
-                            .offset(y = (-10).dp)
+                            .then(if (isVeryCompactHeight) Modifier.verticalScroll(rememberScrollState()) else Modifier)
                             .pointerInput(Unit) {
                                 detectVerticalDragGestures { change, dragAmount ->
-                                    if (dragAmount < -16f) {
+                                    if (dragAmount < -22f) {
                                         change.consume()
                                         queueDrawerTab = 0
                                         isQueueDrawerExpanded = true
                                     }
                                 }
                             },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        DhunPortraitArtCard(
-                            song = song,
-                            targetArtSize = targetArtSize,
-                            isCompactHeight = isCompactHeight,
-                            artScale = artScale,
-                            auraGlowScale = auraGlowScale,
-                            auraGlowAlpha = auraGlowAlpha,
-                            animatedDominant = animatedDominant,
-                            animatedVibrant = animatedVibrant,
-                            sheetDragModifier = sheetDragModifier
-                        )
+                        // Centered swipe-down drag pill
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(sheetDragModifier)
+                                .padding(top = 6.dp, bottom = 2.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(36.dp)
+                                    .height(4.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.25f))
+                            )
+                        }
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        // Edge-to-edge Top Navigation Bar
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(sheetDragModifier)
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = dismissSheet,
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .testTag("now_playing_collapse_btn")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                                    contentDescription = "Collapse player",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
 
-                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "PLAYING FROM",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        letterSpacing = 1.1.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = playingFromLabel,
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { isInlineLyricsVisible = !isInlineLyricsVisible },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .testTag("now_playing_top_lyrics_btn")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Lyrics,
+                                    contentDescription = "Toggle Lyrics",
+                                    tint = if (isInlineLyricsVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { showMoreOptionsSheet = true },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .testTag("now_playing_more_btn")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.MoreVert,
+                                    contentDescription = "More options",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+
+                        // Flexible Hero Artwork / Inline Karaoke Lyrics Zone
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(if (!isVeryCompactHeight) Modifier.weight(1f) else Modifier.padding(vertical = 8.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            DhunPortraitArtCard(
+                                song = song,
+                                uiState = uiState,
+                                viewModel = viewModel,
+                                currentPosition = currentPosition,
+                                maxArtHeight = maxPortraitArtHeight,
+                                artScale = artScale,
+                                auraGlowScale = auraGlowScale,
+                                auraGlowAlpha = auraGlowAlpha,
+                                animatedDominant = animatedDominant,
+                                animatedVibrant = animatedVibrant,
+                                isInlineLyricsVisible = isInlineLyricsVisible,
+                                onToggleInlineLyrics = { isInlineLyricsVisible = !isInlineLyricsVisible },
+                                onSwipeNext = { viewModel.playNext() },
+                                onSwipePrevious = { viewModel.playPrevious() },
+                                sheetDragModifier = sheetDragModifier
+                            )
+                        }
+
+                        // Track Title & Clickable Artist Pills (edge-to-edge 16dp horizontal padding)
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             FadingMarqueeText(
-                                text = cleanSongTitle(song),
-                                style = MaterialTheme.typography.headlineMedium.copy(
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = titleFontSize
+                                text = cleanedTitle,
+                                style = MaterialTheme.typography.headlineSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = if (isCompactHeight) 20.sp else 22.sp,
+                                    lineHeight = if (isCompactHeight) 26.sp else 28.sp,
+                                    platformStyle = PlatformTextStyle(includeFontPadding = true)
                                 ),
                                 color = MaterialTheme.colorScheme.onSurface,
                                 delayMillis = 2000L,
                                 enableFade = true,
                                 edgeGradientWidth = 14.dp,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
                             )
 
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
                             val parsedArtists = remember(song.artist, song.title) {
                                 ArtistParserUtil.splitArtists(song.artist, song.title)
@@ -479,7 +599,8 @@ fun Dhun(
                             if (parsedArtists.isNotEmpty()) {
                                 LazyRow(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     items(parsedArtists, key = { it }) { artistName ->
@@ -487,16 +608,17 @@ fun Dhun(
                                             onClick = {
                                                 val allS = uiState.allSongsList.ifEmpty { uiState.songList }
                                                 val matchingSongs = allS.filter { s ->
-                                                    ArtistParserUtil.splitArtists(s.artist, s.title).any { it.equals(artistName, ignoreCase = true) }
+                                                    ArtistParserUtil.splitArtists(s.artist, s.title)
+                                                        .any { it.equals(artistName, ignoreCase = true) }
                                                 }
                                                 viewModel.openCategoryAndClosePlayer(artistName, "ARTIST", matchingSongs)
                                             },
                                             shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.60f),
-                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.50f),
+                                            border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f))
                                         ) {
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.5.dp),
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Icon(
@@ -510,7 +632,8 @@ fun Dhun(
                                                     text = artistName,
                                                     style = MaterialTheme.typography.labelMedium.copy(
                                                         fontSize = 12.sp,
-                                                        fontWeight = FontWeight.SemiBold
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        platformStyle = PlatformTextStyle(includeFontPadding = true)
                                                     ),
                                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                                                     maxLines = 1
@@ -523,12 +646,14 @@ fun Dhun(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .padding(horizontal = 16.dp)
                                         .clip(RoundedCornerShape(8.dp))
                                         .clickable {
                                             val artistName = song.artist
                                             val allS = uiState.allSongsList.ifEmpty { uiState.songList }
                                             val matchingSongs = allS.filter { s ->
-                                                ArtistParserUtil.splitArtists(s.artist, s.title).any { it.equals(artistName, ignoreCase = true) }
+                                                ArtistParserUtil.splitArtists(s.artist, s.title)
+                                                    .any { it.equals(artistName, ignoreCase = true) }
                                             }
                                             viewModel.openCategoryAndClosePlayer(artistName, "ARTIST", matchingSongs)
                                         },
@@ -542,62 +667,50 @@ fun Dhun(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = song.artist,
+                                        text = SmartTitleCleaner.cleanArtist(song.artist).ifBlank { "Unknown Artist" },
                                         style = MaterialTheme.typography.titleMedium.copy(
-                                            fontSize = if (isCompactHeight) 14.sp else 16.sp,
-                                            fontWeight = FontWeight.Medium
+                                            fontSize = if (isCompactHeight) 14.sp else 15.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            platformStyle = PlatformTextStyle(includeFontPadding = true)
                                         ),
                                         color = if (isKariModeEnabled) animatedVibrant else MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (song.album.isNotBlank() && song.album != "<unknown>") {
-                                        Text(
-                                            text = " • ${song.album}",
-                                            style = MaterialTheme.typography.titleMedium.copy(
-                                                fontSize = if (isCompactHeight) 13.sp else 15.sp,
-                                                fontWeight = FontWeight.Normal
-                                            ),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(if (isCompactHeight) 10.dp else 14.dp))
 
-                        DhunQuickControlsRow(
+                        // Balanced Non-Clipped 3-Pill Row (Like • Hi-Res/Codec • Up Next)
+                        DhunActionPillRow(
                             song = song,
                             uiState = uiState,
                             viewModel = viewModel,
                             isFavorite = isFavorite,
                             animatedVibrant = animatedVibrant,
-                            onOpenTrackInfo = { showTrackInfoDialog = true },
-                            onOpenQueueTab = { tabIndex ->
-                                queueDrawerTab = tabIndex
+                            onOpenAudioInspector = { showAudioInspectorSheet = true },
+                            onOpenQueue = {
+                                queueDrawerTab = 0
                                 isQueueDrawerExpanded = true
-                            },
-                            onOpenAudioFx = { showQuickAudioFxSheet = true },
-                            onOpenSleepTimer = { showSleepTimerDialog = true },
-                            onOpenSpeedDialog = { showSpeedDialog = true },
-                            onOpenMoodDialog = { showMoodDialog = true },
-                            onOpenMoreOptions = { showMoreOptionsSheet = true }
+                            }
                         )
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(if (isCompactHeight) 8.dp else 12.dp))
 
+                        // Edge-to-Edge Seekbar
                         SleekYouTubeMusicSeekBar(
                             currentPosition = currentPosition,
                             totalDuration = totalDuration,
                             accentColor = if (isKariModeEnabled) animatedVibrant else MaterialTheme.colorScheme.primary,
-                            onSeek = { viewModel.seekTo(it) }
+                            onSeek = { viewModel.seekTo(it) },
+                            modifier = Modifier.padding(horizontal = 16.dp)
                         )
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(if (isCompactHeight) 8.dp else 14.dp))
 
+                        // Edge-to-Edge Main Transport Controls
                         DhunPlaybackButtonsRow(
                             uiState = uiState,
                             viewModel = viewModel,
@@ -610,10 +723,27 @@ fun Dhun(
                             playIconSize = playIconSize,
                             skipButtonSize = skipButtonSize,
                             isCompactHeight = isCompactHeight,
-                            arrangement = Arrangement.SpaceBetween
+                            arrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.padding(horizontal = 16.dp)
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp + navBarPadding))
+                        Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 12.dp))
+
+                        // Edge-to-Edge Minimal Borderless Bottom Utility Bar
+                        DhunBottomUtilityBar(
+                            uiState = uiState,
+                            isInlineLyricsVisible = isInlineLyricsVisible,
+                            onToggleLyrics = { isInlineLyricsVisible = !isInlineLyricsVisible },
+                            onOpenAudioFx = { showQuickAudioFxSheet = true },
+                            onOpenSleepTimer = { showSleepTimerDialog = true },
+                            onOpenDriveMode = { viewModel.selectTab(NavigationTab.DRIVE_MODE) },
+                            onShare = {
+                                val currentLine = if (activeLyricIndex in currentLyrics.indices) {
+                                    currentLyrics[activeLyricIndex].text
+                                } else null
+                                StoryShareCardGenerator.generateAndShare(context, song, currentLine)
+                            }
+                        )
                     }
                 }
             }
@@ -654,10 +784,10 @@ fun Dhun(
                     .fillMaxSize()
                     .statusBarsPadding()
                     .offset { IntOffset(0, animatedSheetOffsetY.toInt().coerceAtLeast(0)) },
-                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-                tonalElevation = 8.dp,
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                color = Color(0xF70E1411),
+                tonalElevation = 0.dp,
+                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.10f))
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Column(
@@ -682,20 +812,18 @@ fun Dhun(
                                     }
                                 )
                             }
-                            .padding(top = 16.dp, bottom = 8.dp, start = 16.dp, end = 16.dp),
+                            .padding(top = 10.dp, bottom = 8.dp, start = 12.dp, end = 12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    sheetDragOffsetY = 0f
-                                    isQueueDrawerExpanded = false
-                                }
-                                .padding(vertical = 4.dp)
+                                .width(36.dp)
+                                .height(4.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.25f))
                         )
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -707,7 +835,7 @@ fun Dhun(
                                     sheetDragOffsetY = 0f
                                     isQueueDrawerExpanded = false
                                 },
-                                modifier = Modifier.size(38.dp)
+                                modifier = Modifier.size(44.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.KeyboardArrowDown,
@@ -718,8 +846,8 @@ fun Dhun(
                             }
 
                             Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color.White.copy(alpha = 0.10f),
+                                shape = CircleShape,
+                                color = Color.White.copy(alpha = 0.08f),
                                 modifier = Modifier.padding(vertical = 2.dp)
                             ) {
                                 Row(
@@ -732,9 +860,9 @@ fun Dhun(
                                         val isSelected = queueDrawerTab == index
                                         Box(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(16.dp))
+                                                .clip(CircleShape)
                                                 .background(
-                                                    if (isSelected) Color.White.copy(alpha = 0.25f)
+                                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
                                                     else Color.Transparent
                                                 )
                                                 .clickable { queueDrawerTab = index }
@@ -745,10 +873,10 @@ fun Dhun(
                                                 text = title,
                                                 style = MaterialTheme.typography.labelMedium.copy(
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                    fontSize = 12.5.sp,
-                                                    letterSpacing = 0.5.sp
+                                                    fontSize = 12.sp,
+                                                    letterSpacing = 0.6.sp
                                                 ),
-                                                color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
                                             )
                                         }
                                     }
@@ -757,7 +885,7 @@ fun Dhun(
 
                             IconButton(
                                 onClick = { viewModel.toggleShuffle() },
-                                modifier = Modifier.size(38.dp)
+                                modifier = Modifier.size(44.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.Shuffle,
@@ -772,7 +900,7 @@ fun Dhun(
                     HorizontalDivider(
                         modifier = Modifier.fillMaxWidth(),
                         thickness = 0.5.dp,
-                        color = Color.White.copy(alpha = 0.08f)
+                        color = Color.White.copy(alpha = 0.10f)
                     )
 
                     Box(

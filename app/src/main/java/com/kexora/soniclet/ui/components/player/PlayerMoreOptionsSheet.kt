@@ -1,7 +1,7 @@
 package com.kexora.soniclet.ui.components.player
 
-import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,16 +10,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -29,12 +33,10 @@ import coil.request.ImageRequest
 import com.kexora.soniclet.database.Song
 import com.kexora.soniclet.player.MusicUiState
 import com.kexora.soniclet.player.MusicViewModel
-import com.kexora.soniclet.player.NavigationTab
-import com.kexora.soniclet.player.SleepTimerOption
-import com.kexora.soniclet.library.*
-import com.kexora.soniclet.equalizer.*
-import com.kexora.soniclet.settings.*
+import com.kexora.soniclet.utils.SmartTitleCleaner
 import com.kexora.soniclet.utils.StoryShareCardGenerator
+
+private val ObsidianSheetSurface = Color(0xFF0E1411).copy(alpha = 0.97f)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,48 +55,76 @@ fun PlayerMoreOptionsSheet(
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showAddToPlaylistDialog by remember { mutableStateOf(false) }
+    var newPlaylistName by remember { mutableStateOf("") }
 
-    val sleepTimerActive = uiState.sleepTimerRemainingMs > 0 && uiState.sleepTimerOption != SleepTimerOption.OFF
-    val sleepTimerText = if (sleepTimerActive) {
-        val totalSecs = uiState.sleepTimerRemainingMs / 1000
-        "%02d:%02d left".format(totalSecs / 60, totalSecs % 60)
-    } else {
-        uiState.sleepTimerOption.label
+    val cleanedTitle = remember(song.title, song.filePath) {
+        SmartTitleCleaner.cleanTitle(song.title, song.filePath)
     }
-
-    val currentMood = uiState.songMoods[song.id]
+    val subtitleLine = remember(song.artist, song.album) {
+        val artist = SmartTitleCleaner.cleanArtist(song.artist).ifBlank { "Unknown Artist" }
+        val album = SmartTitleCleaner.cleanAlbum(song.album)
+        if (album.isNotBlank() && !album.equals("Unknown Album", ignoreCase = true)) {
+            "$artist • $album"
+        } else {
+            artist
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        containerColor = ObsidianSheetSurface,
         scrimColor = Color.Black.copy(alpha = 0.65f),
+        tonalElevation = 0.dp,
         dragHandle = null
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(max = 520.dp)
+                .widthIn(max = 540.dp)
                 .align(Alignment.CenterHorizontally)
+                .drawBehind {
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.10f),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, 0f),
+                        strokeWidth = 0.8.dp.toPx()
+                    )
+                }
                 .navigationBarsPadding()
-                .padding(horizontal = 20.dp)
-                .padding(top = 20.dp, bottom = 28.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(top = 10.dp, bottom = 16.dp)
         ) {
-            // Song preview card header
+            // Clean centered drag handle pill
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.25f))
+                )
+            }
+
+            // Borderless edge-to-edge song header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                    .padding(12.dp),
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
                         .size(48.dp)
-                        .clip(RoundedCornerShape(10.dp)),
+                        .clip(RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     if (song.albumArtUri != null) {
@@ -103,18 +133,18 @@ fun PlayerMoreOptionsSheet(
                                 .data(song.albumArtUri)
                                 .crossfade(true)
                                 .build(),
-                            contentDescription = "Cover for ${song.title}",
+                            contentDescription = "Cover for $cleanedTitle",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize(),
                             loading = {
-                                FallbackAlbumArt(title = song.title, modifier = Modifier.fillMaxSize())
+                                FallbackAlbumArt(title = cleanedTitle, modifier = Modifier.fillMaxSize())
                             },
                             error = {
-                                FallbackAlbumArt(title = song.title, modifier = Modifier.fillMaxSize())
+                                FallbackAlbumArt(title = cleanedTitle, modifier = Modifier.fillMaxSize())
                             }
                         )
                     } else {
-                        FallbackAlbumArt(title = song.title, modifier = Modifier.fillMaxSize())
+                        FallbackAlbumArt(title = cleanedTitle, modifier = Modifier.fillMaxSize())
                     }
                 }
 
@@ -122,49 +152,53 @@ fun PlayerMoreOptionsSheet(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = song.title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        text = cleanedTitle,
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = Color.White
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "${song.artist} • ${song.album}",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = subtitleLine,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = Color.White.copy(alpha = 0.65f)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Extended Actions & Sharing",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+            HorizontalDivider(
+                thickness = 0.5.dp,
+                color = Color.White.copy(alpha = 0.10f)
             )
 
-            // Play from Beginning
-            MoreOptionTile(
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // 1. Play from Beginning
+            FlatMoreOptionRow(
                 icon = Icons.Rounded.Replay,
                 iconTint = MaterialTheme.colorScheme.primary,
                 title = "Play from Beginning",
                 subtitle = "Restart current track from 0:00",
+                testTag = "more_opt_play_beginning",
                 onClick = {
                     onDismiss()
                     viewModel.playFromBeginning()
                 }
             )
 
-            // Edit Track Metadata & ID3 Tags
-            MoreOptionTile(
+            // 2. Edit Metadata & ID3 Tags
+            FlatMoreOptionRow(
                 icon = Icons.Rounded.Edit,
                 iconTint = MaterialTheme.colorScheme.primary,
                 title = "Edit Metadata & ID3 Tags",
-                subtitle = "Modify song title, artist, album & cover art",
+                subtitle = "Modify title, artist, album, lyrics & cover art",
+                testTag = "more_opt_edit_metadata",
                 onClick = {
                     onDismiss()
                     if (onOpenMetadataEditor != null) {
@@ -175,25 +209,48 @@ fun PlayerMoreOptionsSheet(
                 }
             )
 
-            // Share to Story
-            MoreOptionTile(
-                icon = Icons.Rounded.Share,
-                iconTint = Color(0xFFFF4081),
-                title = "Share to Story",
-                subtitle = "Create musical card for Instagram or WhatsApp",
+            // 3. Song Details & Audio Inspector
+            FlatMoreOptionRow(
+                icon = Icons.Rounded.GraphicEq,
+                iconTint = Color(0xFF80CBC4),
+                title = "Song Details & Audio Inspector",
+                subtitle = "Codec, sample rate, bit depth & fidelity specs",
+                testTag = "more_opt_audio_inspector",
                 onClick = {
                     onDismiss()
-                    val currentLine = if (uiState.activeLyricIndex in uiState.currentLyrics.indices) uiState.currentLyrics[uiState.activeLyricIndex].text else null
+                    if (onOpenAudioInspector != null) {
+                        onOpenAudioInspector()
+                    } else if (onOpenTrackInfo != null) {
+                        onOpenTrackInfo()
+                    } else {
+                        viewModel.openSongDetails(song)
+                    }
+                }
+            )
+
+            // 4. Share to Story
+            FlatMoreOptionRow(
+                icon = Icons.Rounded.Share,
+                iconTint = Color(0xFFFF6E9A),
+                title = "Share to Story",
+                subtitle = "Create musical card for Instagram or WhatsApp",
+                testTag = "more_opt_share_story",
+                onClick = {
+                    onDismiss()
+                    val currentLine = if (uiState.activeLyricIndex in uiState.currentLyrics.indices) {
+                        uiState.currentLyrics[uiState.activeLyricIndex].text
+                    } else null
                     StoryShareCardGenerator.generateAndShare(context, song, currentLine)
                 }
             )
 
-            // Quick Share (Audio File)
-            MoreOptionTile(
+            // 5. Quick Share (Audio File)
+            FlatMoreOptionRow(
                 icon = Icons.Rounded.WifiTethering,
-                iconTint = Color(0xFF29B6F6),
-                title = "Quick Share (Audio)",
+                iconTint = Color(0xFF4FC3F7),
+                title = "Quick Share (Audio File)",
                 subtitle = "Send original audio file via Nearby or messaging",
+                testTag = "more_opt_quick_share",
                 onClick = {
                     onDismiss()
                     val intent = Intent(Intent.ACTION_SEND).apply {
@@ -205,25 +262,52 @@ fun PlayerMoreOptionsSheet(
                 }
             )
 
-            // Reload Lyrics
-            MoreOptionTile(
+            // 6. Reload Lyrics
+            FlatMoreOptionRow(
                 icon = Icons.Rounded.Refresh,
-                iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                iconTint = Color.White.copy(alpha = 0.85f),
                 title = "Reload Lyrics",
                 subtitle = "Re-fetch synchronized LRC lyrics from storage",
+                testTag = "more_opt_reload_lyrics",
                 onClick = {
                     onDismiss()
                     viewModel.loadLyricsForSong(song)
                 }
             )
 
-            // Reset Custom Lyrics (if imported)
+            // 7. Set as Ringtone
+            FlatMoreOptionRow(
+                icon = Icons.Rounded.ContentCut,
+                iconTint = Color(0xFFFFD54F),
+                title = "Set as Ringtone",
+                subtitle = "Trim & export favorite section as ringtone",
+                testTag = "more_opt_ringtone",
+                onClick = {
+                    onDismiss()
+                    viewModel.openTrimDialog(song)
+                }
+            )
+
+            // 8. Add to Playlist
+            FlatMoreOptionRow(
+                icon = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                iconTint = MaterialTheme.colorScheme.primary,
+                title = "Add to Playlist",
+                subtitle = "Save track to an existing or new playlist",
+                testTag = "more_opt_add_playlist",
+                onClick = {
+                    showAddToPlaylistDialog = true
+                }
+            )
+
+            // Conditional: Reset Custom Lyrics (if imported)
             if (uiState.lyricsSourceType.contains("Imported", ignoreCase = true)) {
-                MoreOptionTile(
+                FlatMoreOptionRow(
                     icon = Icons.Rounded.DeleteOutline,
                     iconTint = MaterialTheme.colorScheme.error,
                     title = "Reset Custom Lyrics",
                     subtitle = "Revert to original file lyrics",
+                    testTag = "more_opt_reset_lyrics",
                     onClick = {
                         onDismiss()
                         viewModel.clearImportedLyrics(song)
@@ -232,85 +316,160 @@ fun PlayerMoreOptionsSheet(
             }
         }
     }
+
+    if (showAddToPlaylistDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showAddToPlaylistDialog = false
+                newPlaylistName = ""
+            },
+            containerColor = Color(0xFF131B17),
+            title = {
+                Text(
+                    text = "Add to Playlist",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (uiState.playlists.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 200.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            uiState.playlists.forEach { playlist ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            viewModel.addSongsToPlaylist(playlist.id, listOf(song))
+                                            Toast.makeText(context, "Added to ${playlist.name}", Toast.LENGTH_SHORT).show()
+                                            showAddToPlaylistDialog = false
+                                            onDismiss()
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.QueueMusic,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = playlist.name,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "${playlist.songIds.size} tracks",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.10f))
+                    }
+
+                    OutlinedTextField(
+                        value = newPlaylistName,
+                        onValueChange = { newPlaylistName = it },
+                        label = { Text("Create new playlist") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = newPlaylistName.trim()
+                        if (trimmed.isNotEmpty()) {
+                            viewModel.createPlaylist(trimmed, listOf(song))
+                            Toast.makeText(context, "Created \"$trimmed\" & added track", Toast.LENGTH_SHORT).show()
+                            showAddToPlaylistDialog = false
+                            newPlaylistName = ""
+                            onDismiss()
+                        }
+                    },
+                    enabled = newPlaylistName.isNotBlank(),
+                    shape = CircleShape
+                ) {
+                    Text("Create & Add")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showAddToPlaylistDialog = false
+                        newPlaylistName = ""
+                    }
+                ) {
+                    Text("Close")
+                }
+            }
+        )
+    }
 }
 
 @Composable
-private fun MoreOptionTile(
+private fun FlatMoreOptionRow(
     icon: ImageVector,
     iconTint: Color,
     title: String,
     subtitle: String,
-    badge: String? = null,
-    badgeColor: Color = MaterialTheme.colorScheme.primary,
+    testTag: String,
     onClick: () -> Unit
 ) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        color = Color.Transparent,
-        modifier = Modifier.fillMaxWidth()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(iconTint.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = iconTint,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = iconTint,
+            modifier = Modifier.size(22.dp)
+        )
 
-            Spacer(modifier = Modifier.width(14.dp))
+        Spacer(modifier = Modifier.width(16.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    if (badge != null) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = badgeColor.copy(alpha = 0.16f),
-                            contentColor = badgeColor
-                        ) {
-                            Text(
-                                text = badge,
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                }
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Icon(
-                imageVector = Icons.Rounded.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                modifier = Modifier.size(20.dp)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Medium
+                ),
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(1.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                color = Color.White.copy(alpha = 0.62f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

@@ -14,6 +14,7 @@ import com.kexora.soniclet.database.Song
 import org.jaudiotagger.audio.AudioFileIO
 import org.jaudiotagger.audio.mp3.MP3File
 import org.jaudiotagger.tag.FieldKey
+import org.jaudiotagger.tag.Tag
 import org.jaudiotagger.tag.TagOptionSingleton
 import org.jaudiotagger.tag.id3.ID3v23Tag
 import org.jaudiotagger.tag.images.ArtworkFactory
@@ -24,6 +25,14 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.util.logging.Level
 import java.util.logging.Logger
+
+data class ExtendedAudioTags(
+    val albumArtist: String = "",
+    val trackNumber: String = "",
+    val composer: String = "",
+    val comment: String = "",
+    val lyrics: String = ""
+)
 
 object TagEditorUtil {
 
@@ -41,9 +50,65 @@ object TagEditorUtil {
     }
 
     /**
+     * Reads extended ID3 / Vorbis / MP4 metadata tags directly from the physical audio file.
+     * Safe to invoke on Dispatchers.IO.
+     */
+    fun readExtendedTags(context: Context, song: Song): ExtendedAudioTags {
+        var resolvedPath = song.filePath
+        if (resolvedPath.isBlank() || !File(resolvedPath).exists()) {
+            resolvedPath = queryRealPathFromUri(context, song.contentUri) ?: song.filePath
+        }
+        val directFile = if (resolvedPath.isNotBlank()) File(resolvedPath) else null
+        var tempFile: File? = null
+
+        return try {
+            val readableFile = when {
+                directFile != null && directFile.exists() && directFile.canRead() -> directFile
+                song.contentUri != Uri.EMPTY -> {
+                    val ext = directFile?.extension?.ifBlank { "mp3" } ?: "mp3"
+                    val tmp = File(context.cacheDir, "tag_read_${System.currentTimeMillis()}.$ext")
+                    tempFile = tmp
+                    if (copySourceToTemp(context, song.contentUri, directFile, tmp) && tmp.length() > 0) tmp else null
+                }
+                else -> null
+            } ?: return ExtendedAudioTags()
+
+            val audioFile = AudioFileIO.read(readableFile)
+            val tag: Tag? = if (audioFile is MP3File) {
+                audioFile.iD3v2Tag ?: audioFile.tag
+            } else {
+                audioFile.tag
+            }
+
+            if (tag == null) return ExtendedAudioTags()
+
+            ExtendedAudioTags(
+                albumArtist = safeGetField(tag, FieldKey.ALBUM_ARTIST),
+                trackNumber = safeGetField(tag, FieldKey.TRACK),
+                composer = safeGetField(tag, FieldKey.COMPOSER),
+                comment = safeGetField(tag, FieldKey.COMMENT),
+                lyrics = safeGetField(tag, FieldKey.LYRICS)
+            )
+        } catch (e: Throwable) {
+            Log.w(TAG, "readExtendedTags failed for '${song.title}': ${e.message}")
+            ExtendedAudioTags()
+        } finally {
+            tempFile?.let { if (it.exists()) it.delete() }
+        }
+    }
+
+    private fun safeGetField(tag: Tag, key: FieldKey): String {
+        return try {
+            tag.getFirst(key)?.trim() ?: ""
+        } catch (_: Throwable) {
+            ""
+        }
+    }
+
+    /**
      * Updates ID3 / Vorbis / FLAC / MP4 audio metadata tags directly inside the physical audio file
      * and syncs the changes to Android's system MediaStore so every music player sees the updated
-     * title, artist, album, year, genre, and custom embedded artwork.
+     * title, artist, album, year, genre, extended studio tags, embedded lyrics, and custom artwork.
      */
     fun editSongTags(
         context: Context,
@@ -53,7 +118,12 @@ object TagEditorUtil {
         newAlbum: String,
         newYear: String,
         newGenre: String,
-        newAlbumArtUri: Uri?
+        newAlbumArtUri: Uri?,
+        newAlbumArtist: String? = null,
+        newTrackNumber: String? = null,
+        newComposer: String? = null,
+        newComment: String? = null,
+        newLyrics: String? = null
     ): Boolean {
         var resolvedPath = song.filePath
         if (resolvedPath.isBlank() || !File(resolvedPath).exists()) {
@@ -71,7 +141,21 @@ object TagEditorUtil {
             val copied = copySourceToTemp(context, song.contentUri, targetFile, tempWorkingFile)
             if (copied && tempWorkingFile.exists() && tempWorkingFile.length() > 0) {
                 // Step 2: Modify ID3/audio tags and embed custom artwork inside the temp audio file
-                val tagged = embedTagsAndArtwork(context, tempWorkingFile, newTitle, newArtist, newAlbum, newYear, newGenre, newAlbumArtUri)
+                val tagged = embedTagsAndArtwork(
+                    context = context,
+                    file = tempWorkingFile,
+                    newTitle = newTitle,
+                    newArtist = newArtist,
+                    newAlbum = newAlbum,
+                    newYear = newYear,
+                    newGenre = newGenre,
+                    newAlbumArtUri = newAlbumArtUri,
+                    newAlbumArtist = newAlbumArtist,
+                    newTrackNumber = newTrackNumber,
+                    newComposer = newComposer,
+                    newComment = newComment,
+                    newLyrics = newLyrics
+                )
                 if (tagged) {
                     // Step 3: Overwrite physical target file directly with the newly tagged file
                     writeSuccess = overwriteTargetAudioFile(context, song.contentUri, targetFile, tempWorkingFile)
@@ -86,7 +170,18 @@ object TagEditorUtil {
         }
 
         // Update MediaStore columns directly so changes take effect immediately across Android system
-        updateMediaStoreMeta(context, song, newTitle, newArtist, newAlbum, newYear, newGenre)
+        updateMediaStoreMeta(
+            context = context,
+            song = song,
+            newTitle = newTitle,
+            newArtist = newArtist,
+            newAlbum = newAlbum,
+            newYear = newYear,
+            newGenre = newGenre,
+            newAlbumArtist = newAlbumArtist,
+            newTrackNumber = newTrackNumber,
+            newComposer = newComposer
+        )
 
         // Rescan file with MediaScanner so Android MediaStore indexer reads freshly embedded physical ID3 tags
         val scanPath = if (targetFile != null && targetFile.exists()) targetFile.absolutePath else song.filePath
@@ -134,6 +229,20 @@ object TagEditorUtil {
         }
     }
 
+    private fun applyOptionalTagField(tag: Tag, key: FieldKey, value: String?) {
+        if (value == null) return
+        try {
+            val trimmed = value.trim()
+            if (trimmed.isNotEmpty()) {
+                tag.setField(key, trimmed)
+            } else {
+                tag.deleteField(key)
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Skipped unsupported tag field $key: ${e.message}")
+        }
+    }
+
     private fun embedTagsAndArtwork(
         context: Context,
         file: File,
@@ -142,7 +251,12 @@ object TagEditorUtil {
         newAlbum: String,
         newYear: String,
         newGenre: String,
-        newAlbumArtUri: Uri?
+        newAlbumArtUri: Uri?,
+        newAlbumArtist: String?,
+        newTrackNumber: String?,
+        newComposer: String?,
+        newComment: String?,
+        newLyrics: String?
     ): Boolean {
         return try {
             val audioFile = AudioFileIO.read(file)
@@ -159,6 +273,12 @@ object TagEditorUtil {
                 if (newAlbum.isNotBlank()) id3v2.setField(FieldKey.ALBUM, newAlbum.trim())
                 if (newYear.isNotBlank()) id3v2.setField(FieldKey.YEAR, newYear.trim())
                 if (newGenre.isNotBlank()) id3v2.setField(FieldKey.GENRE, newGenre.trim())
+
+                applyOptionalTagField(id3v2, FieldKey.ALBUM_ARTIST, newAlbumArtist)
+                applyOptionalTagField(id3v2, FieldKey.TRACK, newTrackNumber)
+                applyOptionalTagField(id3v2, FieldKey.COMPOSER, newComposer)
+                applyOptionalTagField(id3v2, FieldKey.COMMENT, newComment)
+                applyOptionalTagField(id3v2, FieldKey.LYRICS, newLyrics)
 
                 if (newAlbumArtUri != null) {
                     val artBytes = extractOptimizedArtBytes(context, newAlbumArtUri)
@@ -184,6 +304,12 @@ object TagEditorUtil {
                 if (newAlbum.isNotBlank()) tag.setField(FieldKey.ALBUM, newAlbum.trim())
                 if (newYear.isNotBlank()) tag.setField(FieldKey.YEAR, newYear.trim())
                 if (newGenre.isNotBlank()) tag.setField(FieldKey.GENRE, newGenre.trim())
+
+                applyOptionalTagField(tag, FieldKey.ALBUM_ARTIST, newAlbumArtist)
+                applyOptionalTagField(tag, FieldKey.TRACK, newTrackNumber)
+                applyOptionalTagField(tag, FieldKey.COMPOSER, newComposer)
+                applyOptionalTagField(tag, FieldKey.COMMENT, newComment)
+                applyOptionalTagField(tag, FieldKey.LYRICS, newLyrics)
 
                 if (newAlbumArtUri != null) {
                     val artBytes = extractOptimizedArtBytes(context, newAlbumArtUri)
@@ -369,7 +495,10 @@ object TagEditorUtil {
         newArtist: String,
         newAlbum: String,
         newYear: String,
-        newGenre: String
+        newGenre: String,
+        newAlbumArtist: String?,
+        newTrackNumber: String?,
+        newComposer: String?
     ) {
         try {
             val values = ContentValues().apply {
@@ -383,6 +512,17 @@ object TagEditorUtil {
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && newGenre.isNotBlank()) {
                     put(MediaStore.Audio.Media.GENRE, newGenre.trim())
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !newAlbumArtist.isNullOrBlank()) {
+                    put(MediaStore.Audio.Media.ALBUM_ARTIST, newAlbumArtist.trim())
+                }
+                if (!newComposer.isNullOrBlank()) {
+                    put(MediaStore.Audio.Media.COMPOSER, newComposer.trim())
+                }
+                if (!newTrackNumber.isNullOrBlank()) {
+                    newTrackNumber.trim().substringBefore('/').toIntOrNull()?.let {
+                        put(MediaStore.Audio.Media.TRACK, it)
+                    }
                 }
             }
 

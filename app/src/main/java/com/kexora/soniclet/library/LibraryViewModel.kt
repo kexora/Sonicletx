@@ -819,38 +819,66 @@ internal class LibraryViewModel(
         newAlbum: String,
         newYear: String,
         newGenre: String,
-        newAlbumArtUri: Uri? = null
+        newAlbumArtUri: Uri? = null,
+        newAlbumArtist: String? = null,
+        newTrackNumber: String? = null,
+        newComposer: String? = null,
+        newComment: String? = null,
+        newLyrics: String? = null
     ): Boolean {
-        val writeSuccess = vm.audioRepository.updateSongMetadata(songId, newTitle, newArtist, newAlbum, newYear, newGenre, newAlbumArtUri)
+        val writeSuccess = vm.audioRepository.updateSongMetadata(
+            songId = songId,
+            newTitle = newTitle,
+            newArtist = newArtist,
+            newAlbum = newAlbum,
+            newYear = newYear,
+            newGenre = newGenre,
+            newAlbumArtUri = newAlbumArtUri,
+            newAlbumArtist = newAlbumArtist,
+            newTrackNumber = newTrackNumber,
+            newComposer = newComposer,
+            newComment = newComment,
+            newLyrics = newLyrics
+        )
         val updatedSongs = vm.audioRepository.fetchAudioFiles()
+        val refreshedTarget = updatedSongs.find { it.id == songId }
         vm._uiState.update { currentState ->
             val visibleSongs = updatedSongs.filter {
                 !isSongInExcludedFolder(it, currentState.excludedFolders) && !currentState.excludedSongIds.contains(it.id)
             }
             val newFiltered = filterAndSortSongs(visibleSongs, currentState.searchQuery, currentState.sortOption, currentState.sortAscending)
             val updatedCurrentSong = if (currentState.currentSong?.id == songId) {
-                visibleSongs.find { it.id == songId } ?: currentState.currentSong
+                refreshedTarget ?: visibleSongs.find { it.id == songId } ?: currentState.currentSong
             } else {
                 currentState.currentSong
             }
             val updatedSelectedSong = if (currentState.selectedSongForDetails?.id == songId) {
-                visibleSongs.find { it.id == songId } ?: currentState.selectedSongForDetails
+                refreshedTarget ?: visibleSongs.find { it.id == songId } ?: currentState.selectedSongForDetails
             } else {
                 currentState.selectedSongForDetails
+            }
+            val updatedQueue = if (refreshedTarget != null) {
+                currentState.activeQueue.map { qSong -> if (qSong.id == songId) refreshedTarget else qSong }
+            } else {
+                currentState.activeQueue
             }
             currentState.copy(
                 allSongsList = updatedSongs,
                 songList = visibleSongs,
                 filteredSongList = newFiltered,
+                activeQueue = updatedQueue,
                 currentSong = updatedCurrentSong,
                 selectedSongForDetails = updatedSelectedSong
             )
         }
-        updatedSongs.find { it.id == songId }?.let { updatedSong ->
+        refreshedTarget?.let { updatedSong ->
             vm.audioRepository.recordTrackFingerprint(updatedSong)
-        }
-        if (vm._uiState.value.currentSong?.id == songId) {
-            vm.updateNotification()
+            if (vm._uiState.value.currentSong?.id == songId) {
+                if (newLyrics != null) {
+                    vm.loadLyricsForSong(updatedSong)
+                }
+                vm.updateNotification()
+            }
         }
         return writeSuccess
     }

@@ -590,85 +590,11 @@ fun cleanSongTitle(rawTitle: String, filePath: String = ""): String {
  * and replaces underscores with clean single spaces without mutating underlying storage files.
  */
 fun cleanDisplayTitle(rawTitle: String, filePath: String = ""): String {
-    val rawFileName = if (filePath.isNotBlank()) {
-        filePath.substringAfterLast('/').substringBeforeLast('.')
-    } else ""
-
-    var t = rawTitle.trim()
-
-    // 1. Detect if rawTitle is generic, empty, numeric, or web spam
-    val isGenericTitle = t.isBlank() ||
-            t.equals("unknown", ignoreCase = true) ||
-            t.equals("unknown track", ignoreCase = true) ||
-            t.equals("<unknown>", ignoreCase = true) ||
-            t.equals("audio", ignoreCase = true) ||
-            t.matches(Regex("^(track|audio|sound|recording)[_\\s-]*\\d+$", RegexOption.IGNORE_CASE)) ||
-            t.matches(Regex("^\\d+$"))
-
-    val hasWebSpamInTitle = t.contains("www.", ignoreCase = true) ||
-            t.contains("y2mate", ignoreCase = true) ||
-            t.contains("pagalworld", ignoreCase = true) ||
-            t.contains("songs.pk", ignoreCase = true) ||
-            t.contains("320kbps", ignoreCase = true) ||
-            t.contains("128kbps", ignoreCase = true) ||
-            t.contains("mp3pajji", ignoreCase = true)
-
-    val filenameHasIndicScript = rawFileName.any { it.code in 0x0900..0x0D7F }
-    val titleHasIndicScript = t.any { it.code in 0x0900..0x0D7F }
-
-    if (rawFileName.isNotBlank() && (isGenericTitle || hasWebSpamInTitle || (filenameHasIndicScript && !titleHasIndicScript))) {
-        t = rawFileName
-    }
-
-    // 2. Strip common media extensions (.mp3, .m4a, .mp4, .mkv, .webm, etc.)
-    t = t.replace(Regex("\\.(mp3|m4a|wav|aac|opus|ogg|flac|wma|mp4|mkv|webm|3gp)$", RegexOption.IGNORE_CASE), "")
-
-    // 3. Strip leading noisy video/audio prefixes (e.g. "Video - ", "VIDEO _ ", "Full Video _ ")
-    val leadingNoiseRegex = Regex(
-        "^\\s*(?:(?:full\\s+|official\\s+|lyrical\\s+|hd\\s+|4k\\s+|new\\s+)?(?:video|audio|song|music\\s+video)\\s*[:\\-_|•]+\\s*|\\[(?:video|audio|hd|4k)\\]\\s*|\\((?:video|audio|hd|4k)\\)\\s*)",
-        RegexOption.IGNORE_CASE
+    return com.kexora.soniclet.utils.SmartTitleCleaner.cleanTitle(
+        rawTitle = rawTitle,
+        filePath = filePath,
+        applyTitleCase = false
     )
-    var prev: String
-    do {
-        prev = t
-        t = t.replace(leadingNoiseRegex, "")
-    } while (t != prev)
-
-    // 4. Strip web spam & site promos
-    t = t.replace(Regex("\\[(y2mate|pagalworld|songs\\.pk|mr-jatt|djpunjab|ringtone|mp3pajji)[^\\]]*\\]", RegexOption.IGNORE_CASE), "")
-    t = t.replace(Regex("\\((y2mate|pagalworld|songs\\.pk|mr-jatt|djpunjab|ringtone|mp3pajji)[^\\)]*\\)", RegexOption.IGNORE_CASE), "")
-    t = t.replace(Regex("y2mate\\.com\\s*-\\s*", RegexOption.IGNORE_CASE), "")
-    t = t.replace(Regex("www\\.[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,4}\\b", RegexOption.IGNORE_CASE), "")
-    t = t.replace(Regex("\\b(320kbps|128kbps|kbps)\\b", RegexOption.IGNORE_CASE), "")
-
-    // 5. Strip trailing/bracketed format & video tags such as (MP4), [Official Video], (Full Video), (HD)
-    t = t.replace(Regex("\\((official|lyric|lyrical|full|hd|4k|1080p|720p|mp4|mp3|video|audio|remix|slowed|reverb|status)[^\\)]*\\)", RegexOption.IGNORE_CASE), "")
-    t = t.replace(Regex("\\[(official|lyric|lyrical|full|hd|4k|1080p|720p|mp4|mp3|video|audio|remix|slowed|reverb|status)[^\\]]*\\]", RegexOption.IGNORE_CASE), "")
-    t = t.replace(Regex("\\s*(?:-|_|\\|)\\s*(?:mp4|official\\s+video|full\\s+video|lyrical\\s+video|hd\\s+video)\\s*$", RegexOption.IGNORE_CASE), "")
-
-    // 6. Call recording date/time suffix cleaning
-    val isRecording = t.startsWith("Call", ignoreCase = true) ||
-            t.startsWith("REC", ignoreCase = true) ||
-            t.startsWith("Record", ignoreCase = true)
-    if (isRecording) {
-        t = t.replace(Regex("(_|-)\\d{6,8}(_|-)\\d{4,6}$"), "")
-        t = t.replace(Regex("(_|-)\\d{6,8}$"), "")
-        t = t.replace(Regex("(_|-)\\d{4,}$"), "")
-    }
-
-    // 7. Replace underscores with single spaces and collapse redundant whitespace
-    t = t.replace('_', ' ')
-        .replace(Regex("\\s+"), " ")
-        .trim()
-        .trim('-', '|', '•', ' ')
-        .replace(Regex("\\s+"), " ")
-
-    return if (t.isBlank()) {
-        val fallback = (if (rawFileName.isNotBlank()) rawFileName else rawTitle).replace('_', ' ').trim()
-        fallback.ifBlank { rawTitle }
-    } else {
-        t
-    }
 }
 
 /**

@@ -273,9 +273,175 @@ object SongSemanticTagEngine {
         }
     }
 
+    // Stage 1: Hard Disqualifiers for strict Home category filtering
+    private val DEVOTIONAL_DISQUALIFIERS = listOf(
+        "sasural", "ishq", "pyaar", "pyar", "dil", "mehbooba", "sanam", "dj", "party",
+        "club", "remix", "item", "romance", "romantic", "kiss", "bewafa", "saiyaan",
+        "sainya", "jawani", "kamariya", "lahanga", "lehenga"
+    )
+
+    private val CHILL_HIGH_BPM_DISQUALIFIERS = listOf(
+        "dj", "party", "club", "remix", "item", "baraat", "bhojpuri dj", "hardcore",
+        "phonk", "drill", "banger", "disco", "dhamaka", "rave", "edm"
+    )
+
+    private val CHILL_EXPLICIT_OVERRIDES = listOf(
+        "lofi", "lo-fi", "lo fi", "slowed", "reverb"
+    )
+
+    // Stage 2: Deep Multi-Field Dictionaries (Romanized Hindi/Bhojpuri + Devanagari Unicode)
+    private val STRICT_DEVOTIONAL_KEYWORDS = listOf(
+        "shiv", "shiva", "shankar", "bhole", "bholenath", "mahakal", "mahadev", "kailash",
+        "tandav", "krishna", "kanha", "radha", "radhe", "govind", "ram", "siya", "ayodhya",
+        "hanuman", "bajrang", "durga", "maiya", "ambe", "devi", "kali", "mata", "chhath",
+        "chhathi", "bhakti", "bhajan", "aarti", "arti", "chalisa", "stotra", "stotram",
+        "stuti", "mantra", "kirtan", "mala", "simru", "namo", "om", "gayatri", "spiritual",
+        "religious", "devotional", "sharda sinha", "anup jalota", "gulshan kumar", "lakhbir",
+        "kailash kher", "rishab rikhiram", "religious india", "nova spiritual", "hansraj raghuwanshi",
+        "anuradha paudwal", "bolbam", "bol bam", "kanwar", "navratri", "ganesh", "ganpati",
+        "शिव", "शंकर", "भोले", "महादेव", "मैया", "छठी", "भक्ति", "भजन", "आरती",
+        "स्तुति", "चालीसा", "स्तोत्र", "मंत्र", "कृष्ण", "राम", "हनुमान", "दुर्गा"
+    )
+
+    private val STRICT_WORKOUT_KEYWORDS = listOf(
+        "gym", "workout", "beast", "power", "energy", "bass", "phonk", "pump", "hype",
+        "motivational", "motivation", "rap", "trap", "bhangra", "drill", "hustle",
+        "honey singh", "badshah", "karan aujla", "sidhu", "moosewala", "raftaar",
+        "emiway", "divine", "kordhell", "dvrst", "eminem", "unstoppable", "believer",
+        "dangal", "sultan", "warrior", "sigma", "hardcore", "adrenaline"
+    )
+
+    private val STRICT_CHILL_KEYWORDS = listOf(
+        "lofi", "lo-fi", "lo fi", "slowed", "reverb", "acoustic", "unplugged", "peaceful",
+        "instrumental", "flute", "bansuri", "sitar", "rain", "night", "chill", "ambient",
+        "soul", "soft", "melody", "calm", "mellow", "soothing", "sukoon", "prateek kuhad",
+        "anuv jain", "jagjit singh", "relax", "sleep", "serene", "piano"
+    )
+
+    private val STRICT_ROMANTIC_KEYWORDS = listOf(
+        "love", "romantic", "pyaar", "pyar", "ishq", "mohabbat", "dil", "saath", "tum",
+        "tere", "mera", "saiyaan", "sanam", "jaan", "humsafar", "chahat", "arijit",
+        "jubin", "shreya", "atif", "rahat", "darshan raval", "armaan malik", "vishal mishra",
+        "kesariya", "raabta", "shayad", "heeriye", "satranga", "romance", "dhadkan", "mehboob"
+    )
+
+    private val STRICT_PARTY_KEYWORDS = listOf(
+        "party", "dj", "dance", "club", "remix", "mashup", "beat", "nach", "naach",
+        "wedding", "baraat", "floor", "banger", "disco", "bhojpuri dj", "dhol", "thumka",
+        "kamariya", "lahanga", "lehenga", "item", "holi", "shaadi", "sangeet", "edm"
+    )
+
+    private val PUNCT_CLEAN_REGEX = Regex("[^\\p{L}\\p{N}\\u0900-\\u097F\\s]")
+    private val MULTI_SPACE_REGEX = Regex("\\s+")
+
+    private fun normalizeField(raw: String?): String {
+        if (raw.isNullOrBlank()) return ""
+        val lowered = raw.lowercase(Locale.ROOT)
+        return PUNCT_CLEAN_REGEX.replace(lowered, " ")
+            .replace(MULTI_SPACE_REGEX, " ")
+            .trim()
+    }
+
+    /**
+     * Token-aware matching so short words like "om", "ram", "dj", "dil", "rap" never falsely
+     * trigger inside unrelated substrings (e.g., "from", "program", "random", "drama").
+     */
+    private fun fieldMatchesKeyword(normalizedField: String, keyword: String): Boolean {
+        if (normalizedField.isEmpty()) return false
+        val normKw = normalizeField(keyword)
+        if (normKw.isEmpty()) return false
+
+        // Devanagari / Indic scripts or multi-word phrases or long words (>= 5 chars)
+        val hasDevanagari = normKw.any { it.code in 0x0900..0x097F }
+        if (hasDevanagari) {
+            return normalizedField.contains(normKw)
+        }
+        if (normKw.contains(' ')) {
+            return " $normalizedField ".contains(" $normKw ")
+        }
+        if (normKw.length <= 4) {
+            return " $normalizedField ".contains(" $normKw ")
+        }
+        // Longer Latin keywords can match as prefix of a token (e.g. "bhakti" matches "bhakti", "bhaktigeet")
+        return " $normalizedField ".contains(" $normKw")
+    }
+
+    /**
+     * Strict 3-Stage Home Category Scorer:
+     * Stage 1: Hard negative exclusion guard (returns -100 immediately).
+     * Stage 2: Weighted multi-field scoring (Title/Genre +30, Artist +25, Album/Folder +20).
+     * Stage 3: Caller only accepts tracks with score > 0 (zero backfilling).
+     */
+    fun scoreSongForHomeCategory(
+        category: String,
+        song: Song,
+        userMoods: Map<Long, String> = emptyMap()
+    ): Int {
+        if (category.equals("All", ignoreCase = true)) return 1
+
+        val normTitle = normalizeField(song.title)
+        val normArtist = normalizeField(song.artist)
+        val normAlbum = normalizeField(song.album)
+        val normFolder = normalizeField(song.folderName)
+        val normGenre = normalizeField(song.genre)
+        val combinedText = listOf(normTitle, normArtist, normAlbum, normFolder, normGenre)
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+
+        // Stage 1 — Negative Exclusion Guard (Hard Disqualifiers)
+        when (category) {
+            "Devotional" -> {
+                if (DEVOTIONAL_DISQUALIFIERS.any { fieldMatchesKeyword(combinedText, it) }) {
+                    return -100
+                }
+            }
+            "Chill" -> {
+                val hasChillOverride = CHILL_EXPLICIT_OVERRIDES.any { fieldMatchesKeyword(combinedText, it) }
+                if (!hasChillOverride && CHILL_HIGH_BPM_DISQUALIFIERS.any { fieldMatchesKeyword(combinedText, it) }) {
+                    return -100
+                }
+            }
+        }
+
+        var score = 0
+
+        // Explicit user-assigned mood tag
+        val explicitMood = userMoods[song.id]
+        if (explicitMood != null && explicitMood.equals(category, ignoreCase = true)) {
+            score += 40
+        }
+
+        val keywords = when (category) {
+            "Devotional" -> STRICT_DEVOTIONAL_KEYWORDS
+            "Workout" -> STRICT_WORKOUT_KEYWORDS
+            "Chill" -> STRICT_CHILL_KEYWORDS
+            "Romantic" -> STRICT_ROMANTIC_KEYWORDS
+            "Party" -> STRICT_PARTY_KEYWORDS
+            else -> emptyList()
+        }
+
+        // Stage 2 — Deep Multi-Field Scoring (Title/Genre +30, Artist +25, Album/Folder +20)
+        for (kw in keywords) {
+            if (fieldMatchesKeyword(normTitle, kw) || fieldMatchesKeyword(normGenre, kw)) {
+                score += 30
+            }
+            if (fieldMatchesKeyword(normArtist, kw)) {
+                score += 25
+            }
+            if (fieldMatchesKeyword(normAlbum, kw) || fieldMatchesKeyword(normFolder, kw)) {
+                score += 20
+            }
+        }
+
+        return score
+    }
+
     /**
      * Classifies and filters songs for the Home screen category chips:
-     * "All", "Workout", "Devotional", "Chill", "Romantic", "Party"
+     * "All", "Workout", "Devotional", "Chill", "Romantic", "Party".
+     *
+     * Stage 3 — Strict Honest Threshold: ONLY returns tracks with score > 0.
+     * ZERO unrelated backfilling!
      */
     fun filterSongsForHomeCategory(
         category: String,
@@ -284,29 +450,11 @@ object SongSemanticTagEngine {
     ): List<Song> {
         if (category.equals("All", ignoreCase = true) || songs.isEmpty()) return songs
 
-        val targetMoods: Set<MusicMood> = when (category) {
-            "Workout" -> setOf(MusicMood.GYM_WORKOUT_PHONK, MusicMood.HIPHOP_RAP, MusicMood.ENERGETIC_POP)
-            "Devotional" -> setOf(MusicMood.DEVOTIONAL_SPIRITUAL)
-            "Chill" -> setOf(MusicMood.CHILL_ACOUSTIC, MusicMood.SAD_EMOTIONAL, MusicMood.RETRO_CLASSIC)
-            "Romantic" -> setOf(MusicMood.ROMANTIC_LOVE)
-            "Party" -> setOf(MusicMood.PARTY_DANCE, MusicMood.ENERGETIC_POP, MusicMood.REGIONAL_FOLK)
-            else -> emptySet()
-        }
-
-        val scoredMatches = mutableListOf<Pair<Song, Float>>()
+        val scoredMatches = ArrayList<Pair<Song, Int>>()
         for (song in songs) {
-            val explicitUserMood = userMoods[song.id]
-            if (explicitUserMood != null && explicitUserMood.equals(category, ignoreCase = true)) {
-                scoredMatches.add(song to 10f)
-                continue
-            }
-            val analysis = analyzeSong(song)
-            if (analysis.matchedKeywords.isNotEmpty() || analysis.confidence > 0.35f) {
-                if (analysis.primaryMood in targetMoods) {
-                    scoredMatches.add(song to (analysis.confidence + 2f))
-                } else if (analysis.secondaryMoods.any { it in targetMoods }) {
-                    scoredMatches.add(song to (analysis.confidence + 1f))
-                }
+            val score = scoreSongForHomeCategory(category, song, userMoods)
+            if (score > 0) {
+                scoredMatches.add(song to score)
             }
         }
 

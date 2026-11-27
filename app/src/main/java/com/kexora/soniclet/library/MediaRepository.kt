@@ -157,7 +157,20 @@ interface AudioRepository {
     suspend fun fetchAudioFiles(): List<Song>
     suspend fun syncMediaStore(): List<Song>
     suspend fun syncMediaStoreIfChanged(currentSongs: List<Song>): Pair<Boolean, List<Song>>
-    suspend fun updateSongMetadata(songId: Long, newTitle: String, newArtist: String, newAlbum: String, newYear: String = "", newGenre: String = "", newAlbumArtUri: android.net.Uri? = null): Boolean
+    suspend fun updateSongMetadata(
+        songId: Long,
+        newTitle: String,
+        newArtist: String,
+        newAlbum: String,
+        newYear: String = "",
+        newGenre: String = "",
+        newAlbumArtUri: android.net.Uri? = null,
+        newAlbumArtist: String? = null,
+        newTrackNumber: String? = null,
+        newComposer: String? = null,
+        newComment: String? = null,
+        newLyrics: String? = null
+    ): Boolean
     suspend fun getAllDiscoveredFolders(): List<FolderInfo>
     fun getAlbumArtUri(albumId: Long): Uri?
 
@@ -1935,7 +1948,12 @@ override fun setGradientBlur(blur: Float)
         newAlbum: String,
         newYear: String,
         newGenre: String,
-        newAlbumArtUri: android.net.Uri?
+        newAlbumArtUri: android.net.Uri?,
+        newAlbumArtist: String?,
+        newTrackNumber: String?,
+        newComposer: String?,
+        newComment: String?,
+        newLyrics: String?
     ): Boolean = mediaRepository.updateSongMetadata(
         songId = songId,
         newTitle = newTitle,
@@ -1943,7 +1961,12 @@ override fun setGradientBlur(blur: Float)
         newAlbum = newAlbum,
         newYear = newYear,
         newGenre = newGenre,
-        newAlbumArtUri = newAlbumArtUri
+        newAlbumArtUri = newAlbumArtUri,
+        newAlbumArtist = newAlbumArtist,
+        newTrackNumber = newTrackNumber,
+        newComposer = newComposer,
+        newComment = newComment,
+        newLyrics = newLyrics
     )
 
     override fun savePlaybackPosition(songId: Long, positionMs: Long) {
@@ -2703,7 +2726,12 @@ internal class MediaRepository(
         newAlbum: String,
         newYear: String,
         newGenre: String,
-        newAlbumArtUri: Uri?
+        newAlbumArtUri: Uri?,
+        newAlbumArtist: String? = null,
+        newTrackNumber: String? = null,
+        newComposer: String? = null,
+        newComment: String? = null,
+        newLyrics: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val cached = songDao.getAllSongsSync()
         val target = cached.find { it.id == songId } ?: return@withContext false
@@ -2716,7 +2744,12 @@ internal class MediaRepository(
             newAlbum = newAlbum,
             newYear = newYear,
             newGenre = newGenre,
-            newAlbumArtUri = newAlbumArtUri
+            newAlbumArtUri = newAlbumArtUri,
+            newAlbumArtist = newAlbumArtist,
+            newTrackNumber = newTrackNumber,
+            newComposer = newComposer,
+            newComment = newComment,
+            newLyrics = newLyrics
         )
 
         val persistentArtUri = if (newAlbumArtUri != null) {

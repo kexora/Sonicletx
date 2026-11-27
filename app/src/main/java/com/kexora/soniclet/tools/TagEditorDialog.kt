@@ -1,6 +1,5 @@
 package com.kexora.soniclet.tools
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,8 +19,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -33,11 +33,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.kexora.soniclet.database.Song
+import com.kexora.soniclet.utils.SmartTitleCleaner
 
 /**
- * Enhanced, dynamic ID3 Tag Editor Dialog.
+ * Enhanced, dynamic ID3 Tag Editor Dialog wired to SmartTitleCleaner.
  * Adapts to every screen size and orientation smoothly with imePadding and vertical scrolling.
- * Never clips or cuts off fields when the keyboard is open.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,16 +55,38 @@ fun TagEditorDialog(
     val focusManager = LocalFocusManager.current
     val scrollState = rememberScrollState()
 
-    // Smart title cleaner helper
     fun autoCleanTags() {
-        val cleanRegex = Regex("""(?i)\s*[\(\[](official\s*(music\s*)?video|video|audio|lyrics?|remastered|hd|4k|320\s*kbps|full\s*song|hq)[\)\]]|\.mp3|\.m4a|\.flac|\.wav""")
-        title = title.replace(cleanRegex, "").trim()
-        artist = artist.replace(cleanRegex, "").trim()
-        album = album.replace(cleanRegex, "").trim()
+        val cleaned = SmartTitleCleaner.cleanAll(
+            rawTitle = title,
+            rawArtist = artist,
+            rawAlbum = album,
+            filePath = song.filePath
+        )
+        title = cleaned.title
+        if (cleaned.artist.isNotBlank()) artist = cleaned.artist
+        album = cleaned.album
+    }
+
+    fun swapTitleAndArtist() {
+        val prevTitle = title
+        title = artist
+        artist = prevTitle
+    }
+
+    fun extractArtistFromTitle() {
+        val split = SmartTitleCleaner.splitTitleAndArtist(
+            rawTitle = title,
+            existingArtist = artist,
+            filePath = song.filePath
+        )
+        title = split.cleanTitle
+        if (split.cleanArtist.isNotBlank()) {
+            artist = split.cleanArtist
+        }
     }
 
     val popularGenres = remember {
-        listOf("Pop", "Rock", "Hip-Hop", "Electronic", "Classical", "Jazz", "Lo-Fi", "Bollywood", "Acoustic", "Metal", "R&B", "Dance")
+        listOf("Bhojpuri", "Bollywood", "Punjabi", "Devotional", "Lo-Fi", "Romantic", "Hip-Hop", "Classical", "Pop", "Acoustic", "Electronic", "Rock")
     }
 
     Dialog(
@@ -89,89 +111,83 @@ fun TagEditorDialog(
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Header with artwork thumbnail, song name & Auto-Clean button
+                // Header with artwork thumbnail & title
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (song.albumArtUri != null) {
-                                AsyncImage(
-                                    model = song.albumArtUri,
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Rounded.MusicNote,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(10.dp))
-
-                        Column {
-                            Text(
-                                text = "Edit Audio Tags",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 16.sp),
-                                color = MaterialTheme.colorScheme.onSurface
+                        if (song.albumArtUri != null) {
+                            AsyncImage(
+                                model = song.albumArtUri,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize()
                             )
-                            Text(
-                                text = song.title,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                     }
 
-                    // Auto-Clean Helper Pill Button
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .clickable { autoCleanTags() }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.AutoFixHigh,
-                                contentDescription = "Auto Clean",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Clean",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Edit Audio Tags",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 16.sp),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = SmartTitleCleaner.cleanTitle(song.title, song.filePath),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
 
+                // Quick Smart Action Pills (Smart Clean, Swap, Extract Artist)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    DialogQuickActionChip(
+                        icon = Icons.Rounded.AutoFixHigh,
+                        label = "Smart Clean",
+                        highlighted = true,
+                        onClick = { autoCleanTags() },
+                        testTag = "tag_dialog_smart_clean"
+                    )
+                    DialogQuickActionChip(
+                        icon = Icons.Rounded.SwapHoriz,
+                        label = "Swap",
+                        onClick = { swapTitleAndArtist() },
+                        testTag = "tag_dialog_swap"
+                    )
+                    DialogQuickActionChip(
+                        icon = Icons.Rounded.ContentCut,
+                        label = "Extract Artist",
+                        onClick = { extractArtistFromTitle() },
+                        testTag = "tag_dialog_extract_artist"
+                    )
+                }
+
                 HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                    modifier = Modifier.padding(vertical = 2.dp)
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
                 )
 
                 // Title Input Field
@@ -245,7 +261,6 @@ fun TagEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Year
                     OutlinedTextField(
                         value = year,
                         onValueChange = { if (it.length <= 4 && it.all { char -> char.isDigit() }) year = it },
@@ -260,7 +275,6 @@ fun TagEditorDialog(
                         modifier = Modifier.weight(0.42f)
                     )
 
-                    // Genre
                     OutlinedTextField(
                         value = genre,
                         onValueChange = { genre = it },
@@ -271,7 +285,7 @@ fun TagEditorDialog(
                         trailingIcon = {
                             if (genre.isNotEmpty()) {
                                 IconButton(onClick = { genre = "" }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Rounded.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Rounded.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
                                 }
                             }
                         },
@@ -286,11 +300,11 @@ fun TagEditorDialog(
                 // Quick Genre Chips
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "Quick Genres:",
+                        text = "Quick Genres",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 11.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -300,14 +314,14 @@ fun TagEditorDialog(
                         popularGenres.forEach { g ->
                             val isSelected = genre.equals(g, ignoreCase = true)
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                shape = CircleShape,
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                                 border = BorderStroke(
-                                    1.dp,
+                                    0.8.dp,
                                     if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                                 ),
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(CircleShape)
                                     .clickable { genre = g }
                             ) {
                                 Text(
@@ -317,7 +331,7 @@ fun TagEditorDialog(
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                     ),
                                     color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                                 )
                             }
                         }
@@ -335,7 +349,7 @@ fun TagEditorDialog(
                         onClick = onDismissRequest,
                         modifier = Modifier
                             .weight(1f)
-                            .height(42.dp),
+                            .height(44.dp),
                         shape = CircleShape,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -347,7 +361,7 @@ fun TagEditorDialog(
                         onClick = { onSave(title, artist, album, year, genre) },
                         modifier = Modifier
                             .weight(1f)
-                            .height(42.dp),
+                            .height(44.dp),
                         shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
@@ -360,6 +374,51 @@ fun TagEditorDialog(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DialogQuickActionChip(
+    icon: ImageVector,
+    label: String,
+    highlighted: Boolean = false,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    Surface(
+        shape = CircleShape,
+        color = if (highlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = if (highlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+        ),
+        modifier = Modifier
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .testTag(testTag)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Medium,
+                    fontSize = 11.5.sp
+                ),
+                color = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }

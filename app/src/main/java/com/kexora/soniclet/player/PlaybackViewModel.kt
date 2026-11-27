@@ -2369,8 +2369,26 @@ class MusicViewModel @Inject constructor(
         newAlbum: String,
         newYear: String,
         newGenre: String,
-        newAlbumArtUri: Uri? = null
-    ): Boolean = libVm.updateSongMetadata(songId, newTitle, newArtist, newAlbum, newYear, newGenre, newAlbumArtUri)
+        newAlbumArtUri: Uri? = null,
+        newAlbumArtist: String? = null,
+        newTrackNumber: String? = null,
+        newComposer: String? = null,
+        newComment: String? = null,
+        newLyrics: String? = null
+    ): Boolean = libVm.updateSongMetadata(
+        songId = songId,
+        newTitle = newTitle,
+        newArtist = newArtist,
+        newAlbum = newAlbum,
+        newYear = newYear,
+        newGenre = newGenre,
+        newAlbumArtUri = newAlbumArtUri,
+        newAlbumArtist = newAlbumArtist,
+        newTrackNumber = newTrackNumber,
+        newComposer = newComposer,
+        newComment = newComment,
+        newLyrics = newLyrics
+    )
     fun setMinDurationFilter(durationMs: Long) = libVm.setMinDurationFilter(durationMs)
     fun analyzeDuplicateGroups(): List<DuplicateGroup> = libVm.analyzeDuplicateGroups()
     fun findDuplicateSongs(): List<List<Song>> = libVm.findDuplicateSongs()

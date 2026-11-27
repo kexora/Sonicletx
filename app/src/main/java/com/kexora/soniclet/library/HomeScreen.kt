@@ -31,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -38,6 +39,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -165,8 +168,13 @@ fun HomeScreen(
     val selectedCategory = uiState.selectedHomeCategory
     val categories = remember { listOf("All", "Workout", "Devotional", "Chill", "Romantic", "Party") }
 
-    val displayedForYouSongs = remember(uiState.homeForYouSongs, allSongs, searchQuery) {
-        val base = uiState.homeForYouSongs.ifEmpty { allSongs.take(25) }
+    val displayedForYouSongs = remember(uiState.homeForYouSongs, allSongs, selectedCategory, searchQuery) {
+        val base = if (selectedCategory.equals("All", ignoreCase = true)) {
+            uiState.homeForYouSongs.ifEmpty { allSongs.take(25) }
+        } else {
+            // Stage 3 Strict Honest Threshold: ZERO unrelated backfilling for specific categories!
+            uiState.homeForYouSongs
+        }
         if (searchQuery.isBlank()) base
         else base.filter {
             it.title.fuzzyMatch(searchQuery) ||
@@ -175,8 +183,12 @@ fun HomeScreen(
         }
     }
 
-    val displayedMixSongs = remember(uiState.homeMixSongs, displayedForYouSongs, searchQuery) {
-        val base = uiState.homeMixSongs.ifEmpty { displayedForYouSongs }
+    val displayedMixSongs = remember(uiState.homeMixSongs, displayedForYouSongs, selectedCategory, searchQuery) {
+        val base = if (selectedCategory.equals("All", ignoreCase = true)) {
+            uiState.homeMixSongs.ifEmpty { displayedForYouSongs }
+        } else {
+            uiState.homeMixSongs
+        }
         if (searchQuery.isBlank()) base
         else base.filter {
             it.title.fuzzyMatch(searchQuery) ||
@@ -346,18 +358,24 @@ fun HomeScreen(
             }
         }
 
-        // 2. Top Featured Mix Hero Card (132.dp height, 16.dp radius, 12.dp side margin)
+        // 2. Compact, Box-Free Editorial Mix Header (zero heavy card container)
         if (displayedMixSongs.isNotEmpty()) {
             item(key = "home_featured_mix_card") {
-                FeaturedMixHeroCard(
+                EditorialMixHeaderStrip(
                     mixConfig = activeMixConfig,
                     songs = displayedMixSongs,
                     onOpenMixPlaylist = {
                         viewModel.openOrCreateDynamicPlaylist(activeMixConfig.title, displayedMixSongs)
                     },
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .testTag("home_featured_mix_card")
+                    modifier = Modifier.testTag("home_featured_mix_card")
+                )
+            }
+        } else if (!selectedCategory.equals("All", ignoreCase = true)) {
+            item(key = "home_empty_category_state") {
+                EmptyCategoryHeaderState(
+                    category = selectedCategory,
+                    icon = activeMixConfig.icon,
+                    onShowAll = { viewModel.setHomeCategory("All") }
                 )
             }
         }
@@ -744,11 +762,12 @@ fun HomeScreen(
 }
 
 /**
- * Top Featured Mix Card: 136.dp height, 18.dp corner radius, subtle 1.dp hairline border,
- * dynamically updates with selected Category Chip, and opens/saves dynamic playlist via "View All →".
+ * Compact, Box-Free Editorial Mix Header Strip:
+ * Zero heavy rectangular card container or thick border — uses only a whisper-subtle ambient
+ * radial color wash behind clean edge-to-edge typography and a crisp 68.dp squircle lead artwork.
  */
 @Composable
-private fun FeaturedMixHeroCard(
+private fun EditorialMixHeaderStrip(
     mixConfig: HomeMixConfig,
     songs: List<Song>,
     onOpenMixPlaylist: () -> Unit,
@@ -758,130 +777,210 @@ private fun FeaturedMixHeroCard(
     val leadSong = remember(songs) {
         songs.firstOrNull { it.albumArtUri != null } ?: songs.firstOrNull()
     }
+    val accentTint = mixConfig.gradientColors.getOrElse(1) { MaterialTheme.colorScheme.primary }
 
-    Surface(
-        onClick = onOpenMixPlaylist,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)),
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(132.dp)
+            .clickable(onClick = onOpenMixPlaylist)
+            .drawBehind {
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            accentTint.copy(alpha = 0.16f),
+                            accentTint.copy(alpha = 0.05f),
+                            Color.Transparent
+                        ),
+                        center = Offset(size.width * 0.22f, size.height * 0.45f),
+                        radius = size.width * 0.78f
+                    )
+                )
+            }
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Brush.linearGradient(mixConfig.gradientColors))
-                .padding(horizontal = 14.dp, vertical = 12.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 14.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 12.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                // Compact pill tag ("DEVOTIONAL • 8 SONGS" or "FOR YOU • 30 SONGS")
+                Surface(
+                    shape = CircleShape,
+                    color = accentTint.copy(alpha = 0.16f)
                 ) {
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = mixConfig.icon,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.9f),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = "${mixConfig.badgeText} • ${songs.size} SONGS",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.7.sp
-                                ),
-                                color = Color.White.copy(alpha = 0.85f),
-                                maxLines = 1
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(3.dp))
-
-                        Text(
-                            text = mixConfig.title,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontSize = 18.5.sp,
-                                fontWeight = FontWeight.Bold
-                            ),
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = mixConfig.icon,
+                            contentDescription = null,
+                            tint = accentTint,
+                            modifier = Modifier.size(11.dp)
                         )
-
-                        Spacer(modifier = Modifier.height(2.dp))
-
                         Text(
-                            text = mixConfig.subtitle,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontSize = 11.5.sp,
-                                lineHeight = 15.sp
+                            text = "${mixConfig.badgeText} • ${songs.size} SONGS",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 0.75.sp,
+                                platformStyle = PlatformTextStyle(includeFontPadding = true)
                             ),
-                            color = Color.White.copy(alpha = 0.86f),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.90f),
+                            maxLines = 1
                         )
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                    Surface(
-                        onClick = onOpenMixPlaylist,
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.White.copy(alpha = 0.18f),
-                        border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.3f))
+                Text(
+                    text = mixConfig.title,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = 20.sp,
+                        lineHeight = 25.sp,
+                        fontWeight = FontWeight.Bold,
+                        platformStyle = PlatformTextStyle(includeFontPadding = true)
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = mixConfig.subtitle,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        platformStyle = PlatformTextStyle(includeFontPadding = true)
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Sleek compact "View All →" pill button (32.dp height, CircleShape)
+                Surface(
+                    onClick = onOpenMixPlaylist,
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(horizontal = 14.dp)
                     ) {
                         Text(
                             text = "View All →",
                             style = MaterialTheme.typography.labelMedium.copy(
-                                fontSize = 11.5.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             ),
-                            color = Color.White,
-                            maxLines = 1,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1
                         )
                     }
                 }
+            }
 
-                // Cover Art Preview
-                if (leadSong != null) {
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                        modifier = Modifier.size(96.dp)
-                    ) {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(leadSong.albumArtUri)
-                                .size(240)
-                                .crossfade(false)
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .build(),
-                            contentDescription = leadSong.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                            loading = {
-                                FallbackAlbumArt(title = leadSong.title, modifier = Modifier.fillMaxSize())
-                            },
-                            error = {
-                                FallbackAlbumArt(title = leadSong.title, modifier = Modifier.fillMaxSize())
-                            }
+            // Crisp 68.dp x 68.dp squircle lead artwork with subtle 0.8.dp white/15% hairline rim
+            if (leadSong != null) {
+                Box(
+                    modifier = Modifier
+                        .size(68.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .border(
+                            width = 0.8.dp,
+                            color = Color.White.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(16.dp)
                         )
-                    }
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                ) {
+                    SubcomposeAsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(leadSong.albumArtUri)
+                            .size(200)
+                            .crossfade(false)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build(),
+                        contentDescription = leadSong.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                        loading = {
+                            FallbackAlbumArt(title = leadSong.title, modifier = Modifier.fillMaxSize())
+                        },
+                        error = {
+                            FallbackAlbumArt(title = leadSong.title, modifier = Modifier.fillMaxSize())
+                        }
+                    )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyCategoryHeaderState(
+    category: String,
+    icon: ImageVector,
+    onShowAll: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+            modifier = Modifier.size(28.dp)
+        )
+        Text(
+            text = "No $category tracks found in your library yet",
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = 13.5.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Medium,
+                platformStyle = PlatformTextStyle(includeFontPadding = true)
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Surface(
+            onClick = onShowAll,
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+            border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
+            modifier = Modifier.height(32.dp)
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.padding(horizontal = 14.dp)
+            ) {
+                Text(
+                    text = "Back to All",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }
@@ -978,8 +1077,9 @@ private fun HomeSectionHeader(
 
 /**
  * Clean Compact Horizontal Song Card:
- * 118.dp x 118.dp rounded 14.dp artwork with a subtle 0.8.dp hairline border,
- * cleaned song title at 12.sp Medium (maxLines = 1), artist name at 10.5.sp (maxLines = 1).
+ * 118.dp x 118.dp rounded 14.dp artwork with glowing emerald active border, subtle bottom scrim,
+ * animated 4-bar Live Audio Equalizer Waveform badge anchored at BottomStart, and non-clipped
+ * typography with safe vertical breathing room for Latin & Devanagari scripts.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1008,9 +1108,9 @@ private fun MediumHorizontalSongCard(
             shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
             border = BorderStroke(
-                width = 0.8.dp,
+                width = if (isCurrentSong) 1.5.dp else 0.8.dp,
                 color = if (isCurrentSong) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                    MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)
                 }
@@ -1038,17 +1138,35 @@ private fun MediumHorizontalSongCard(
                 )
 
                 if (isCurrentSong) {
+                    // Subtle bottom gradient scrim so faces on cover art are never obscured
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.42f)),
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.48f)
+                            .align(Alignment.BottomCenter)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.55f)
+                                    )
+                                )
+                            )
+                    )
+
+                    // Compact frosted dark pill badge with 4-bar Live Audio Equalizer Waveform
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color(0xCC0A0F0D))
+                            .padding(horizontal = 7.dp, vertical = 4.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.Pause,
-                            contentDescription = if (isPlaying) "Playing" else "Paused",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(26.dp)
+                        LiveEqualizerWaveform(
+                            isPlaying = isPlaying,
+                            barColor = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -1059,28 +1177,130 @@ private fun MediumHorizontalSongCard(
 
         Text(
             text = cleanedTitle,
-            style = MaterialTheme.typography.bodyMedium.copy(
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
+            style = TextStyle(
+                fontSize = 12.5.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Medium,
+                platformStyle = PlatformTextStyle(includeFontPadding = true)
             ),
             color = if (isCurrentSong) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 2.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp)
         )
 
-        Spacer(modifier = Modifier.height(1.dp))
+        Spacer(modifier = Modifier.height(2.dp))
 
         Text(
             text = artistName,
-            style = MaterialTheme.typography.bodySmall.copy(
-                fontSize = 10.5.sp
+            style = TextStyle(
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                fontWeight = FontWeight.Normal,
+                platformStyle = PlatformTextStyle(includeFontPadding = true)
             ),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 2.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp)
         )
+    }
+}
+
+/**
+ * Flagship 4-bar Live Audio Equalizer Waveform:
+ * Animates bar heights asynchronously (420ms / 560ms / 380ms / 500ms) while playing,
+ * and collapses gently to calm resting bars with a tiny pause dot when paused.
+ */
+@Composable
+private fun LiveEqualizerWaveform(
+    isPlaying: Boolean,
+    barColor: Color,
+    modifier: Modifier = Modifier
+) {
+    if (isPlaying) {
+        val transition = rememberInfiniteTransition(label = "live_eq_waveform")
+        val bar1 by transition.animateFloat(
+            initialValue = 0.25f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "eq_bar_1"
+        )
+        val bar2 by transition.animateFloat(
+            initialValue = 0.95f,
+            targetValue = 0.28f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 560, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "eq_bar_2"
+        )
+        val bar3 by transition.animateFloat(
+            initialValue = 0.30f,
+            targetValue = 0.92f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 380, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "eq_bar_3"
+        )
+        val bar4 by transition.animateFloat(
+            initialValue = 0.85f,
+            targetValue = 0.25f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 500, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "eq_bar_4"
+        )
+        val fractions = listOf(bar1, bar2, bar3, bar4)
+        Row(
+            modifier = modifier.height(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            fractions.forEach { frac ->
+                Box(
+                    modifier = Modifier
+                        .width(2.5.dp)
+                        .fillMaxHeight(frac.coerceIn(0.25f, 1.0f))
+                        .clip(CircleShape)
+                        .background(barColor)
+                )
+            }
+        }
+    } else {
+        Row(
+            modifier = modifier.height(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            val restingHeights = listOf(0.32f, 0.48f, 0.36f, 0.28f)
+            restingHeights.forEach { frac ->
+                Box(
+                    modifier = Modifier
+                        .width(2.5.dp)
+                        .fillMaxHeight(frac)
+                        .clip(CircleShape)
+                        .background(barColor.copy(alpha = 0.65f))
+                )
+            }
+            Spacer(modifier = Modifier.width(1.dp))
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterVertically)
+                    .size(3.5.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.78f))
+            )
+        }
     }
 }
 
@@ -1144,9 +1364,11 @@ private fun TopSingerAvatarItem(
 
         Text(
             text = singerName,
-            style = MaterialTheme.typography.bodySmall.copy(
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Medium
+            style = TextStyle(
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Medium,
+                platformStyle = PlatformTextStyle(includeFontPadding = true)
             ),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
@@ -1154,10 +1376,14 @@ private fun TopSingerAvatarItem(
             textAlign = TextAlign.Center
         )
 
+        Spacer(modifier = Modifier.height(1.dp))
+
         Text(
             text = "${songs.size} songs",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontSize = 10.sp
+            style = TextStyle(
+                fontSize = 10.5.sp,
+                lineHeight = 14.sp,
+                platformStyle = PlatformTextStyle(includeFontPadding = true)
             ),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,

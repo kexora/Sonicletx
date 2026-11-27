@@ -199,29 +199,24 @@ object HomeRecommendationEngine {
             .toSet()
 
         // Filter pool by selected category chip (All, Workout, Devotional, Chill, Romantic, Party)
+        // Stage 3: Strict honest threshold — ZERO unrelated backfilling!
         val categoryPool: List<Song> = if (selectedCategory.equals("All", ignoreCase = true)) {
             eligibleSongs
         } else {
-            val matched = SongSemanticTagEngine.filterSongsForHomeCategory(
+            SongSemanticTagEngine.filterSongsForHomeCategory(
                 category = selectedCategory,
                 songs = eligibleSongs,
                 userMoods = songMoods
             )
-            if (matched.size >= 4) {
-                matched
-            } else {
-                // Soft fallback if library has very few explicit matches for the chip
-                val matchedIds = matched.map { it.id }.toSet()
-                val extras = eligibleSongs
-                    .filter { it.id !in matchedIds }
-                    .sortedByDescending { song ->
-                        val analysis = analysisCache[song.id] ?: SongSemanticTagEngine.analyzeSong(song)
-                        categoryFallbackAffinity(selectedCategory, song, analysis.primaryMood) +
-                            deterministicTieBreaker(calendarDate, selectedCategory, manualRefreshCounter, song.id) * 0.5f
-                    }
-                    .take((20 - matched.size).coerceAtLeast(0))
-                matched + extras
-            }
+        }
+
+        if (categoryPool.isEmpty()) {
+            return HomeRecommendationResult(
+                eligibleSongs = eligibleSongs,
+                forYouSongs = emptyList(),
+                mixSongs = emptyList(),
+                topSingers = topSingers
+            )
         }
 
         // Layer 3 — Weighted Multi-Factor Scoring

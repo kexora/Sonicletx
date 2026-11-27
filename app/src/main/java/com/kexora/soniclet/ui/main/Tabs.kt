@@ -3,23 +3,39 @@ package com.kexora.soniclet.ui.main
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -34,17 +50,16 @@ import androidx.compose.material.icons.filled.MoreTime
 import androidx.compose.material.icons.filled.NightlightRound
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -54,10 +69,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import com.kexora.soniclet.LocalPlayerBottomPadding
 import com.kexora.soniclet.database.Song
 import com.kexora.soniclet.gestures.SwipeBackContainer
@@ -533,7 +552,11 @@ fun RenderStandaloneTab(
 }
 
 /**
- * Complete Tab Header (Kapar + ScrollableTabRow) and Main Tab Router (Pager + Standalone + Radio Host + GlobalSearchOverlay).
+ * Complete Tab Header (Kapar + Auto-Centering LazyRow Tab Bar) and Main Tab Router
+ * (HorizontalPager + Standalone + Persistent Radio Host + GlobalSearchOverlay).
+ *
+ * Single Source of Truth: `pagerState` owns the active main tab, highlight, indicator pill,
+ * and auto-centering scroll offset — eliminating any duplicate mutable tab index state.
  */
 @Composable
 fun ColumnScope.MainTabRouterSection(
@@ -553,15 +576,116 @@ fun ColumnScope.MainTabRouterSection(
     }
     val effectiveTab = if (uiState.currentTab == NavigationTab.NOW_PLAYING) underlyingTab else uiState.currentTab
 
-    val mainTabsNames = mainTabsList.map { getMainTabDisplayName(it) }
     val isMainPagerTab = mainTabsList.contains(effectiveTab)
-    val currentTabTitle = getNavigationTabTitle(effectiveTab, uiState.activeSettingsSubPage)
+    val pagerScope = rememberCoroutineScope()
+    var tabTapScrollJob by remember { mutableStateOf<Job?>(null) }
 
-    val showKapar = effectiveTab != NavigationTab.DRIVE_MODE &&
-        effectiveTab != NavigationTab.PLAYLIST_DETAILS &&
-        effectiveTab != NavigationTab.CATEGORY_DETAILS &&
-        effectiveTab != NavigationTab.DUPLICATES &&
-        effectiveTab != NavigationTab.SONG_DETAILS
+    // Hoisted Single Source of Truth for the main HorizontalPager & top tab bar
+    val initialPagerIndex = remember(mainTabsList) {
+        mainTabsList.indexOf(effectiveTab).coerceIn(0, (mainTabsList.size - 1).coerceAtLeast(0))
+    }
+    val pagerState = rememberPagerState(
+        initialPage = initialPagerIndex,
+        pageCount = { mainTabsList.size.coerceAtLeast(1) }
+    )
+
+    // Read-only derived active tab & highlighted index directly from pagerState
+    val activePagerTab by remember(mainTabsList) {
+        derivedStateOf {
+            mainTabsList.getOrElse(pagerState.currentPage) { NavigationTab.HOME }
+        }
+    }
+    val highlightedTabIndex by remember(mainTabsList) {
+        derivedStateOf {
+            val rawIndex = if (pagerState.isScrollInProgress) pagerState.targetPage else pagerState.currentPage
+            rawIndex.coerceIn(0, (mainTabsList.size - 1).coerceAtLeast(0))
+        }
+    }
+
+    val displayTab = if (isMainPagerTab) activePagerTab else effectiveTab
+    val mainTabsNames = remember(mainTabsList) { mainTabsList.map { getMainTabDisplayName(it) } }
+    val currentTabTitle = getNavigationTabTitle(displayTab, uiState.activeSettingsSubPage)
+
+    // Clear multi-selection cleanly on page change
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }
+            .distinctUntilChanged()
+            .collect {
+                if (uiState.selectedSongIds.isNotEmpty()) {
+                    viewModel.clearSelectedSongs()
+                }
+            }
+    }
+
+    // Two-way ViewModel <-> Pager sync with loop guard so swipes never fight external tab changes
+    val latestEffectiveTab by rememberUpdatedState(effectiveTab)
+    val latestIsMainPager by rememberUpdatedState(isMainPagerTab)
+    var lastSyncedFromPagerTab by remember { mutableStateOf<NavigationTab?>(null) }
+
+    // 1) Pager -> ViewModel: update ViewModel cleanly when swipe settles
+    LaunchedEffect(pagerState, mainTabsList) {
+        snapshotFlow { pagerState.settledPage }
+            .distinctUntilChanged()
+            .collect { settledPage ->
+                val settledTab = mainTabsList.getOrNull(settledPage)
+                if (settledTab != null && latestIsMainPager && latestEffectiveTab != settledTab) {
+                    lastSyncedFromPagerTab = settledTab
+                    viewModel.selectTab(settledTab)
+                }
+            }
+    }
+
+    // 2) External ViewModel -> Pager (e.g., sidebar drawer, Back-to-Home, widget intent, radio edge swipe)
+    LaunchedEffect(effectiveTab, mainTabsList) {
+        if (isMainPagerTab) {
+            val expectedPage = mainTabsList.indexOf(effectiveTab)
+            if (lastSyncedFromPagerTab == effectiveTab) {
+                lastSyncedFromPagerTab = null
+            } else if (expectedPage >= 0 && pagerState.currentPage != expectedPage) {
+                tabTapScrollJob?.cancel()
+                pagerState.animateScrollToPage(expectedPage)
+            }
+        }
+    }
+
+    // Auto-centering LazyRow state for the top tab bar
+    val tabRowListState = rememberLazyListState()
+    LaunchedEffect(pagerState, mainTabsList) {
+        snapshotFlow {
+            val target = if (pagerState.isScrollInProgress) pagerState.targetPage else pagerState.currentPage
+            target to pagerState.settledPage
+        }
+            .distinctUntilChanged()
+            .collect { (activeRaw, settledRaw) ->
+                if (mainTabsList.isEmpty()) return@collect
+                val activeIndex = (if (pagerState.isScrollInProgress) activeRaw else settledRaw)
+                    .coerceIn(0, mainTabsList.lastIndex)
+
+                suspend fun centerTab(index: Int) {
+                    val layoutInfo = tabRowListState.layoutInfo
+                    val viewportWidth = (layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset)
+                        .coerceAtLeast(0)
+                    val visibleItem = layoutInfo.visibleItemsInfo.find { it.index == index }
+                    val estimatedItemWidth = visibleItem?.size
+                        ?: (layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: (viewportWidth / 4).coerceAtLeast(110))
+                    val centerOffset = ((viewportWidth - estimatedItemWidth) / 2).coerceAtLeast(0)
+                    tabRowListState.animateScrollToItem(index = index, scrollOffset = -centerOffset)
+                }
+
+                val wasVisible = tabRowListState.layoutInfo.visibleItemsInfo.any { it.index == activeIndex }
+                centerTab(activeIndex)
+                // Re-center precisely once measured if item was previously off-screen (e.g., Queue / Wrapped)
+                if (!wasVisible) {
+                    centerTab(activeIndex)
+                }
+            }
+    }
+
+    val showKapar = displayTab != NavigationTab.DRIVE_MODE &&
+        displayTab != NavigationTab.PLAYLIST_DETAILS &&
+        displayTab != NavigationTab.CATEGORY_DETAILS &&
+        displayTab != NavigationTab.DUPLICATES &&
+        displayTab != NavigationTab.SONG_DETAILS
     var isSearchActive by remember { mutableStateOf(false) }
 
     BackHandler(enabled = isSearchActive) {
@@ -576,7 +700,7 @@ fun ColumnScope.MainTabRouterSection(
     ) {
         Column {
             Kapar(
-                currentTab = effectiveTab,
+                currentTab = displayTab,
                 trackCount = uiState.filteredSongList.size,
                 searchQuery = uiState.searchQuery,
                 onSearchQueryChange = { viewModel.updateSearchQuery(it) },
@@ -600,13 +724,13 @@ fun ColumnScope.MainTabRouterSection(
                 onBack = { viewModel.popTabStack() },
                 titleText = currentTabTitle,
                 suggestionCandidates = remember(
-                    effectiveTab,
+                    displayTab,
                     uiState.songList,
                     uiState.playlists,
                     uiState.discoveredFolders
                 ) {
                     SearchPredictionUtil.getSuggestionCandidates(
-                        effectiveTab,
+                        displayTab,
                         uiState.songList,
                         uiState.playlists,
                         uiState.discoveredFolders
@@ -619,43 +743,83 @@ fun ColumnScope.MainTabRouterSection(
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically()
             ) {
-                ScrollableTabRow(
-                    selectedTabIndex = mainTabsList.indexOf(effectiveTab).coerceAtLeast(0),
-                    edgePadding = 16.dp,
-                    containerColor = Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    divider = {},
-                    indicator = { tabPositions ->
-                        val selectedIndex = mainTabsList.indexOf(effectiveTab).coerceAtLeast(0)
-                        if (selectedIndex < tabPositions.size) {
-                            TabRowDefaults.SecondaryIndicator(
-                                modifier = Modifier
-                                    .tabIndicatorOffset(tabPositions[selectedIndex])
-                                    .padding(horizontal = 16.dp)
-                                    .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
+                LazyRow(
+                    state = tabRowListState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("main_top_tab_bar"),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    mainTabsNames.forEachIndexed { index, title ->
-                        val isSelected = mainTabsList[index] == effectiveTab
-                        Tab(
-                            selected = isSelected,
-                            onClick = { viewModel.selectTab(mainTabsList[index]) },
-                            text = {
-                                Text(
-                                    text = title,
-                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                    fontSize = 15.sp,
-                                    color = if (isSelected) {
-                                        MaterialTheme.colorScheme.onSurface
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    itemsIndexed(
+                        items = mainTabsNames,
+                        key = { idx, _ -> mainTabsList[idx].name }
+                    ) { index, title ->
+                        val isSelected = highlightedTabIndex == index
+                        val tabTextColor by animateColorAsState(
+                            targetValue = if (isSelected) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f)
+                            },
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                            label = "tab_text_color_$index"
+                        )
+                        val indicatorWidth by animateDpAsState(
+                            targetValue = if (isSelected) 24.dp else 0.dp,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "tab_indicator_width_$index"
+                        )
+                        val indicatorColor by animateColorAsState(
+                            targetValue = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                Color.Transparent
+                            },
+                            animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                            label = "tab_indicator_color_$index"
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {
+                                        if (index in mainTabsList.indices) {
+                                            tabTapScrollJob?.cancel()
+                                            tabTapScrollJob = pagerScope.launch {
+                                                pagerState.animateScrollToPage(index)
+                                            }
+                                        }
                                     }
                                 )
-                            }
-                        )
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                .testTag("main_tab_${mainTabsList[index].name.lowercase()}"),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = title,
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                fontSize = 15.sp,
+                                color = tabTextColor,
+                                maxLines = 1
+                            )
+                            Spacer(modifier = Modifier.height(5.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(indicatorWidth)
+                                    .height(3.dp)
+                                    .clip(CircleShape)
+                                    .background(indicatorColor)
+                            )
+                        }
                     }
                 }
             }
@@ -664,7 +828,7 @@ fun ColumnScope.MainTabRouterSection(
 
     val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomPadding = if (showMiniPlayer) 86.dp + navBarPadding + 4.dp else navBarPadding + 16.dp
-    val isRadioTabVisible = effectiveTab == NavigationTab.RADIO &&
+    val isRadioTabVisible = displayTab == NavigationTab.RADIO &&
         !isSearchActive &&
         uiState.currentTab != NavigationTab.NOW_PLAYING &&
         uiState.currentTab != NavigationTab.DRIVE_MODE
@@ -672,12 +836,18 @@ fun ColumnScope.MainTabRouterSection(
     val radioTabIndex = mainTabsList.indexOf(NavigationTab.RADIO)
     val onRadioSwipePreviousTab: () -> Unit = {
         if (radioTabIndex > 0) {
-            viewModel.selectTab(mainTabsList[radioTabIndex - 1])
+            tabTapScrollJob?.cancel()
+            tabTapScrollJob = pagerScope.launch {
+                pagerState.animateScrollToPage(radioTabIndex - 1)
+            }
         }
     }
     val onRadioSwipeNextTab: () -> Unit = {
         if (radioTabIndex >= 0 && radioTabIndex < mainTabsList.lastIndex) {
-            viewModel.selectTab(mainTabsList[radioTabIndex + 1])
+            tabTapScrollJob?.cancel()
+            tabTapScrollJob = pagerScope.launch {
+                pagerState.animateScrollToPage(radioTabIndex + 1)
+            }
         }
     }
 
@@ -720,42 +890,11 @@ fun ColumnScope.MainTabRouterSection(
                 ) { screenContent ->
                     when (screenContent) {
                         MainScreenContent.Pager -> {
-                            val pagerState = rememberPagerState(
-                                initialPage = mainTabsList.indexOf(effectiveTab).coerceAtLeast(0),
-                                pageCount = { mainTabsList.size }
-                            )
-
-                            LaunchedEffect(pagerState.currentPage) {
-                                if (uiState.selectedSongIds.isNotEmpty()) {
-                                    viewModel.clearSelectedSongs()
-                                }
-                            }
-
-                            // Sync settled page to ViewModel cleanly only when swipe settles
-                            LaunchedEffect(pagerState, mainTabsList) {
-                                snapshotFlow { pagerState.settledPage }.collect { settledPage ->
-                                    val newTab = mainTabsList.getOrNull(settledPage)
-                                    if (newTab != null && effectiveTab != newTab && isMainPagerTab) {
-                                        viewModel.selectTab(newTab)
-                                    }
-                                }
-                            }
-
-                            // Animate pager when tab changes externally without fighting user drag
-                            LaunchedEffect(effectiveTab, mainTabsList) {
-                                if (isMainPagerTab) {
-                                    val expectedPage = mainTabsList.indexOf(effectiveTab).coerceAtLeast(0)
-                                    if (pagerState.currentPage != expectedPage && !pagerState.isScrollInProgress) {
-                                        pagerState.animateScrollToPage(expectedPage)
-                                    }
-                                }
-                            }
-
                             HorizontalPager(
                                 state = pagerState,
                                 modifier = Modifier.fillMaxSize(),
                                 userScrollEnabled = true,
-                                beyondViewportPageCount = 0
+                                beyondViewportPageCount = 1
                             ) { page ->
                                 mainTabsList.getOrNull(page)?.let { pageTab ->
                                     RenderLibraryTab(

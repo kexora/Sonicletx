@@ -74,6 +74,7 @@ fun SonicletBottomNavigation(
     NavigationBar(
         modifier = modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .shadow(16.dp, RoundedCornerShape(24.dp))
             .clip(RoundedCornerShape(24.dp)),
