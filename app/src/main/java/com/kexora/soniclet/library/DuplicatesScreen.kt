@@ -1,7 +1,13 @@
 package com.kexora.soniclet.library
 
+import android.app.Activity
+import android.os.Build
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,15 +18,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,19 +30,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kexora.soniclet.LocalPlayerBottomPadding
 import com.kexora.soniclet.database.Song
 import com.kexora.soniclet.player.MusicViewModel
+import com.kexora.soniclet.settings.formatReadableStoragePath
 import com.kexora.soniclet.ui.components.common.MadeInIndiaFooter
 import com.kexora.soniclet.ui.components.common.formatMillisToTime
-import com.kexora.soniclet.utils.DuplicateDetectorEngine
 import com.kexora.soniclet.utils.DuplicateGroup
-import com.kexora.soniclet.utils.DuplicateMatchReason
+import com.kexora.soniclet.utils.DuplicateScanMode
 import com.kexora.soniclet.utils.DuplicateTrackItem
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,295 +58,428 @@ fun DuplicatesScreen(
 ) {
     BackHandler(onBack = onBack)
 
-    val uiState by viewModel.uiState.collectAsState()
-    val allDuplicateGroups = remember(uiState.allSongsList) {
-        viewModel.analyzeDuplicateGroups()
-    }
-
-    var selectedReasonFilter by remember { mutableStateOf<DuplicateMatchReason?>(null) }
-    val filteredGroups = remember(allDuplicateGroups, selectedReasonFilter) {
-        if (selectedReasonFilter == null) allDuplicateGroups
-        else allDuplicateGroups.filter { it.matchReason == selectedReasonFilter }
-    }
-
-    // Selected song IDs for bulk deletion
-    val selectedSongIds = remember { mutableStateListOf<Long>() }
-    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
-    var singleSongToDelete by remember { mutableStateOf<Song?>(null) }
-    var isDeleting by remember { mutableStateOf(false) }
-
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // Calculations
-    val totalRedundantCount = remember(allDuplicateGroups) {
-        allDuplicateGroups.sumOf { (it.tracks.size - 1).coerceAtLeast(0) }
-    }
-    val totalReclaimBytes = remember(allDuplicateGroups) {
-        allDuplicateGroups.sumOf { it.potentialReclaimBytes }
+    var scanMode by remember { mutableStateOf(DuplicateScanMode.SMART_MATCH) }
+    var scanNonce by remember { mutableIntStateOf(0) }
+    var isScanning by remember { mutableStateOf(true) }
+    var duplicateGroups by remember { mutableStateOf<List<DuplicateGroup>>(emptyList()) }
+
+    val selectedSongIds = remember { mutableStateListOf<Long>() }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
+    var pendingScopedDeleteSongIds by remember { mutableStateOf<List<Long>>(emptyList()) }
+
+    // Android 11+ MediaStore.createDeleteRequest consent launcher for Scoped Storage bulk delete
+    val bulkDeleteConsentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val pendingIds = pendingScopedDeleteSongIds
+        pendingScopedDeleteSongIds = emptyList()
+        isDeleting = false
+        showDeleteConfirmDialog = false
+        if (result.resultCode == Activity.RESULT_OK && pendingIds.isNotEmpty()) {
+            selectedSongIds.removeAll(pendingIds.toSet())
+            viewModel.onSongsExternallyDeleted(pendingIds)
+            val unit = if (pendingIds.size == 1) "file" else "files"
+            Toast.makeText(context, "Deleted ${pendingIds.size} duplicate $unit", Toast.LENGTH_SHORT).show()
+            scanNonce++
+        } else if (result.resultCode != Activity.RESULT_OK) {
+            Toast.makeText(context, "Deletion canceled", Toast.LENGTH_SHORT).show()
+        }
     }
 
-    // Selected reclaim bytes
-    val selectedReclaimBytes = remember(selectedSongIds.toList(), allDuplicateGroups) {
-        val allTrackItems = allDuplicateGroups.flatMap { it.tracks }
-        val map = allTrackItems.associate { it.song.id to it.fileSize }
-        selectedSongIds.sumOf { map[it] ?: 0L }
-    }
-
-    // Function to auto-select all redundant tracks
-    fun autoSelectAllRedundant() {
+    // Run analysis off the main thread whenever library, mode, or rescan changes
+    LaunchedEffect(uiState.allSongsList, scanMode, scanNonce) {
+        isScanning = true
+        val computed = withContext(Dispatchers.Default) {
+            viewModel.analyzeDuplicateGroups(scanMode)
+        }
+        duplicateGroups = computed
+        // Automatically pre-select ONLY the lower-quality redundant copies (keeping index 0 safe)
         selectedSongIds.clear()
-        for (group in filteredGroups) {
-            // Keep the best quality track (tracks[0]), select the rest
-            for (i in 1 until group.tracks.size) {
-                selectedSongIds.add(group.tracks[i].song.id)
+        computed.forEach { group ->
+            group.tracks.drop(1).forEach { redundant ->
+                selectedSongIds.add(redundant.song.id)
             }
         }
-        if (selectedSongIds.isNotEmpty()) {
-            Toast.makeText(context, "Selected ${selectedSongIds.size} redundant copies", Toast.LENGTH_SHORT).show()
+        isScanning = false
+    }
+
+    val totalRedundantCount = remember(duplicateGroups) {
+        duplicateGroups.sumOf { (it.tracks.size - 1).coerceAtLeast(0) }
+    }
+    val totalReclaimBytes = remember(duplicateGroups) {
+        duplicateGroups.sumOf { it.potentialReclaimBytes }
+    }
+    val selectedReclaimBytes = remember(selectedSongIds.toList(), duplicateGroups) {
+        val sizeById = duplicateGroups.flatMap { it.tracks }.associate { it.song.id to it.fileSize }
+        selectedSongIds.sumOf { sizeById[it] ?: 0L }
+    }
+
+    fun executeDeleteSelected() {
+        val allTracks = duplicateGroups.flatMap { it.tracks }.map { it.song }
+        val songsToDelete = allTracks.filter { selectedSongIds.contains(it.id) }
+        if (songsToDelete.isEmpty()) return
+
+        // On Android 11+, request batch deletion via MediaStore.createDeleteRequest for content:// URIs
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val contentUris = songsToDelete.mapNotNull { song ->
+                song.contentUri.takeIf { it.scheme == "content" }
+            }
+            if (contentUris.isNotEmpty() && contentUris.size == songsToDelete.size) {
+                try {
+                    isDeleting = true
+                    pendingScopedDeleteSongIds = songsToDelete.map { it.id }
+                    val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, contentUris)
+                    bulkDeleteConsentLauncher.launch(
+                        IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                    )
+                    return
+                } catch (_: Exception) {
+                    pendingScopedDeleteSongIds = emptyList()
+                    // Fall through to physical delete loop below
+                }
+            }
+        }
+
+        coroutineScope.launch {
+            isDeleting = true
+            var deletedCount = 0
+            for (song in songsToDelete) {
+                if (viewModel.deleteSongPhysical(song)) {
+                    deletedCount++
+                }
+            }
+            selectedSongIds.clear()
+            isDeleting = false
+            showDeleteConfirmDialog = false
+
+            if (deletedCount > 0) {
+                val unit = if (deletedCount == 1) "file" else "files"
+                Toast.makeText(context, "Deleted $deletedCount duplicate $unit", Toast.LENGTH_SHORT).show()
+                scanNonce++
+            } else {
+                Toast.makeText(context, "Could not delete selected files", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            "Duplicate Cleaner",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            if (allDuplicateGroups.isEmpty()) "Smart Storage Optimizer"
-                            else "${allDuplicateGroups.size} duplicate groups • $totalRedundantCount copies",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (filteredGroups.isNotEmpty()) {
-                        TextButton(
-                            onClick = {
-                                if (selectedSongIds.isNotEmpty()) {
-                                    selectedSongIds.clear()
-                                } else {
-                                    autoSelectAllRedundant()
-                                }
-                            }
-                        ) {
-                            Text(
-                                if (selectedSongIds.isNotEmpty()) "Deselect" else "Select All Copies",
-                                fontWeight = FontWeight.SemiBold,
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
-        },
-        bottomBar = {
-            AnimatedVisibility(
-                visible = selectedSongIds.isNotEmpty(),
-                enter = slideInVertically { it } + fadeIn(),
-                exit = slideOutVertically { it } + fadeOut()
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    shadowElevation = 8.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(
-                                "${selectedSongIds.size} files selected",
-                                fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                            Text(
-                                "Reclaims ${formatFileSize(selectedReclaimBytes)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
-                            )
-                        }
+    val hairlineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+    val pillBorder = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    val miniPlayerClearance = maxOf(115.dp, LocalPlayerBottomPadding.current + 12.dp)
 
-                        Button(
-                            onClick = { showDeleteConfirmDialog = true },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error,
-                                contentColor = MaterialTheme.colorScheme.onError
-                            ),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Delete Copies", fontWeight = FontWeight.Bold)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Transparent)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Standard Transparent Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .testTag("duplicates_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Duplicate Cleaner",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Black,
+                            fontSize = 20.sp,
+                            letterSpacing = (-0.5).sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Circular Rescan button
+                Surface(
+                    onClick = {
+                        viewModel.loadAudioFiles(forceSync = true)
+                        scanNonce++
+                    },
+                    enabled = !isScanning,
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = pillBorder,
+                    modifier = Modifier
+                        .requiredSize(36.dp)
+                        .testTag("duplicates_rescan_button")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (isScanning) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = "Rescan duplicates",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 }
             }
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            if (uiState.isLoading) {
-                com.kexora.soniclet.ui.components.common.SkeletonSongList(
-                    count = 8,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 4.dp, bottom = com.kexora.soniclet.LocalPlayerBottomPadding.current + 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+
+            // Sleek CircleShape Mode Toggle Pill (Smart Match | Exact Files)
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = pillBorder,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .height(42.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(3.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Header Stats Cards (Always present)
-                    item(key = "stats_banner") {
-                        DuplicateStatsBanner(
-                            totalGroups = allDuplicateGroups.size,
-                            totalRedundant = totalRedundantCount,
-                            totalReclaimBytes = totalReclaimBytes
+                    DuplicateScanMode.values().forEach { mode ->
+                        val active = scanMode == mode
+                        Surface(
+                            onClick = { scanMode = mode },
+                            shape = CircleShape,
+                            color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .testTag("duplicates_mode_${mode.name.lowercase()}")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = mode.label,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (active) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Box-Free Inline 3-Column Summary Strip
+            HorizontalDivider(thickness = 0.5.dp, color = hairlineColor)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SummaryMetricColumn(
+                    label = "Groups",
+                    value = "${duplicateGroups.size}",
+                    valueColor = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(0.5.dp)
+                        .height(30.dp)
+                        .background(hairlineColor)
+                )
+                SummaryMetricColumn(
+                    label = "Extra Copies",
+                    value = "$totalRedundantCount",
+                    valueColor = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(0.5.dp)
+                        .height(30.dp)
+                        .background(hairlineColor)
+                )
+                SummaryMetricColumn(
+                    label = "Space to Free",
+                    value = formatFileSize(totalReclaimBytes),
+                    valueColor = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1.1f)
+                )
+            }
+            HorizontalDivider(thickness = 0.5.dp, color = hairlineColor)
+
+            // Main Body: Loading, Empty State, or Edge-to-Edge Duplicate Group List
+            if (uiState.isLoading || isScanning) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(34.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 3.dp
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = if (scanMode == DuplicateScanMode.SMART_MATCH) {
+                                "Checking songs for duplicate copies..."
+                            } else {
+                                "Comparing file sizes and audio data..."
+                            },
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-
-                    // Category Filter Chips (Always present so user can filter or see zero-counts)
-                    if (allDuplicateGroups.isNotEmpty()) {
-                        item(key = "filter_chips") {
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.padding(vertical = 4.dp)
+                }
+            } else if (duplicateGroups.isEmpty()) {
+                // Clean Borderless Empty State
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 32.dp)
+                        .padding(bottom = miniPlayerClearance * 0.5f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            modifier = Modifier
+                                .size(68.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "No Duplicate Songs Found",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "All your songs are unique and clean.",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Surface(
+                            onClick = {
+                                viewModel.loadAudioFiles(forceSync = true)
+                                scanNonce++
+                            },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = pillBorder,
+                            modifier = Modifier
+                                .height(40.dp)
+                                .testTag("duplicates_scan_again_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 18.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                item {
-                                    FilterChip(
-                                        selected = selectedReasonFilter == null,
-                                        onClick = { selectedReasonFilter = null },
-                                        label = { Text("All (${allDuplicateGroups.size})", fontSize = 12.sp) },
-                                        leadingIcon = if (selectedReasonFilter == null) {
-                                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                                        } else null
-                                    )
-                                }
-                                items(DuplicateMatchReason.values()) { reason ->
-                                    val count = allDuplicateGroups.count { it.matchReason == reason }
-                                    if (count > 0) {
-                                        FilterChip(
-                                            selected = selectedReasonFilter == reason,
-                                            onClick = { selectedReasonFilter = if (selectedReasonFilter == reason) null else reason },
-                                            label = { Text("${reason.title} ($count)", fontSize = 12.sp) },
-                                            leadingIcon = if (selectedReasonFilter == reason) {
-                                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                                            } else null
-                                        )
-                                    }
-                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Scan Again",
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
                     }
+                }
+            } else {
+                val listBottomClearance = if (selectedSongIds.isNotEmpty()) {
+                    miniPlayerClearance + 76.dp
+                } else {
+                    miniPlayerClearance
+                }
 
-                    // Groups List or Empty State
-                    if (allDuplicateGroups.isEmpty()) {
-                        item(key = "empty_duplicates") {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 48.dp, horizontal = 16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.padding(16.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Rounded.CheckCircle,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(44.dp),
-                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                                    )
-                                    Spacer(modifier = Modifier.height(14.dp))
-                                    Text(
-                                        "No Duplicates Found",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        "Your music library is clean and storage-optimized. No duplicate tracks or clones detected.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                    )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .testTag("duplicates_group_list"),
+                    contentPadding = PaddingValues(bottom = listBottomClearance)
+                ) {
+                    itemsIndexed(duplicateGroups, key = { _, group -> group.groupId }) { index, group ->
+                        FlatDuplicateGroupSection(
+                            group = group,
+                            currentPlayingSongId = uiState.currentSong?.id,
+                            isPlaying = uiState.isPlaying,
+                            selectedSongIds = selectedSongIds,
+                            onToggleSongSelection = { songId ->
+                                if (selectedSongIds.contains(songId)) {
+                                    selectedSongIds.remove(songId)
+                                } else {
+                                    selectedSongIds.add(songId)
+                                }
+                            },
+                            onPlaySong = { song ->
+                                if (uiState.currentSong?.id == song.id) {
+                                    viewModel.togglePlayPause()
+                                } else {
+                                    viewModel.playSong(song, songsContext = group.tracks.map { it.song })
                                 }
                             }
-                        }
-                    } else if (filteredGroups.isEmpty()) {
-                        item(key = "empty_filtered_duplicates") {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 36.dp, horizontal = 16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        Icons.Rounded.FilterListOff,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(38.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                    )
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Text(
-                                        "No items in this category",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        items(filteredGroups, key = { it.groupId }) { group ->
-                            CleanDuplicateGroupCard(
-                                group = group,
-                                currentPlayingSongId = uiState.currentSong?.id,
-                                isPlaying = uiState.isPlaying,
-                                selectedSongIds = selectedSongIds,
-                                onToggleSongSelection = { songId ->
-                                    if (selectedSongIds.contains(songId)) {
-                                        selectedSongIds.remove(songId)
-                                    } else {
-                                        selectedSongIds.add(songId)
-                                    }
-                                },
-                                onPlaySong = { song ->
-                                    if (uiState.currentSong?.id == song.id) {
-                                        viewModel.togglePlayPause()
-                                    } else {
-                                        viewModel.playSong(song, songsContext = group.tracks.map { it.song })
-                                    }
-                                },
-                                onDeleteSingle = { song ->
-                                    singleSongToDelete = song
-                                }
+                        )
+
+                        if (index < duplicateGroups.lastIndex) {
+                            HorizontalDivider(
+                                thickness = 0.5.dp,
+                                color = hairlineColor
                             )
                         }
                     }
@@ -350,58 +490,89 @@ fun DuplicatesScreen(
                 }
             }
         }
+
+        // Full-Pill Delete Selected Action Button cleanly above MiniPlayer (115.dp+ clearance)
+        AnimatedVisibility(
+            visible = selectedSongIds.isNotEmpty() && !isScanning,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = miniPlayerClearance)
+        ) {
+            val fileWord = if (selectedSongIds.size == 1) "file" else "files"
+            Button(
+                onClick = { showDeleteConfirmDialog = true },
+                enabled = !isDeleting,
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("duplicates_delete_selected_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.DeleteOutline,
+                    contentDescription = null,
+                    modifier = Modifier.size(19.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Delete Selected (${selectedSongIds.size} $fileWord • ${formatFileSize(selectedReclaimBytes)})",
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 
-    // Confirmation Dialog for Bulk Delete
+    // Bulk Delete Confirmation Dialog
     if (showDeleteConfirmDialog) {
+        val count = selectedSongIds.size
+        val fileWord = if (count == 1) "file" else "files"
         AlertDialog(
             onDismissRequest = { if (!isDeleting) showDeleteConfirmDialog = false },
-            icon = { Icon(Icons.Rounded.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Delete ${selectedSongIds.size} Duplicate Files?") },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.DeleteOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Delete $count Duplicate ${if (count == 1) "File" else "Files"}?", fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "These redundant copies will be permanently deleted to free up ${formatFileSize(selectedReclaimBytes)} of storage. The best quality original tracks will be kept safely.",
+                    "Remove $count extra $fileWord to free up ${formatFileSize(selectedReclaimBytes)}? Your best copy of each song will be kept safe.",
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
             confirmButton = {
                 Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            isDeleting = true
-                            var deletedCount = 0
-                            val allTracks = allDuplicateGroups.flatMap { it.tracks }.map { it.song }
-                            val songsToDelete = allTracks.filter { selectedSongIds.contains(it.id) }
-
-                            for (song in songsToDelete) {
-                                val success = viewModel.deleteSongPhysical(song)
-                                if (success) deletedCount++
-                            }
-
-                            selectedSongIds.clear()
-                            isDeleting = false
-                            showDeleteConfirmDialog = false
-
-                            if (deletedCount > 0) {
-                                Toast.makeText(context, "Successfully deleted $deletedCount duplicate files", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "Could not delete files automatically. System storage permission required.", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    enabled = !isDeleting
+                    onClick = { executeDeleteSelected() },
+                    enabled = !isDeleting,
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
                 ) {
                     if (isDeleting) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onError, strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(6.dp))
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = MaterialTheme.colorScheme.onError,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                     }
-                    Text(
-                        text = "Delete",
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Text("Delete", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             },
             dismissButton = {
@@ -409,360 +580,263 @@ fun DuplicatesScreen(
                     onClick = { showDeleteConfirmDialog = false },
                     enabled = !isDeleting
                 ) {
-                    Text(
-                        text = "Cancel",
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        )
-    }
-
-    // Single Song Delete Confirmation Dialog
-    if (singleSongToDelete != null) {
-        val song = singleSongToDelete!!
-        AlertDialog(
-            onDismissRequest = { singleSongToDelete = null },
-            icon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Delete This Copy?") },
-            text = {
-                Column {
-                    Text(song.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Folder: ${song.folderName}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(song.filePath, style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val target = song
-                        singleSongToDelete = null
-                        coroutineScope.launch {
-                            val success = viewModel.deleteSongPhysical(target)
-                            if (success) {
-                                Toast.makeText(context, "Deleted: ${target.title}", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "Failed to delete file.", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { singleSongToDelete = null }) {
-                    Text("Cancel")
+                    Text("Cancel", maxLines = 1, softWrap = false)
                 }
             }
         )
     }
 }
 
-/**
- * Top Summary Stats Banner for Duplicates (Clean, without circle background clutter)
- */
 @Composable
-private fun DuplicateStatsBanner(
-    totalGroups: Int,
-    totalRedundant: Int,
-    totalReclaimBytes: Long
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Rounded.CleaningServices,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        "Smart Duplicate Analysis",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Text(
-                        "Safe detection via Audio Hash, Title, Bitrate & Duration",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                StatBadge(
-                    label = "Groups",
-                    value = "$totalGroups",
-                    modifier = Modifier.weight(1f)
-                )
-                StatBadge(
-                    label = "Redundant",
-                    value = "$totalRedundant files",
-                    modifier = Modifier.weight(1.2f)
-                )
-                StatBadge(
-                    label = "Save Storage",
-                    value = formatFileSize(totalReclaimBytes),
-                    valueColor = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1.3f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatBadge(
+private fun SummaryMetricColumn(
     label: String,
     value: String,
-    valueColor: Color = MaterialTheme.colorScheme.onSurface,
+    valueColor: Color,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-        modifier = modifier
+    Column(
+        modifier = modifier.padding(horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, fontSize = 13.sp),
-                color = valueColor,
-                maxLines = 1
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp
+            ),
+            color = valueColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
     }
 }
 
-/**
- * Clean & Simple Duplicate Group Card
- */
 @Composable
-private fun CleanDuplicateGroupCard(
+private fun FlatDuplicateGroupSection(
     group: DuplicateGroup,
     currentPlayingSongId: Long?,
     isPlaying: Boolean,
     selectedSongIds: List<Long>,
     onToggleSongSelection: (Long) -> Unit,
-    onPlaySong: (Song) -> Unit,
-    onDeleteSingle: (Song) -> Unit
+    onPlaySong: (Song) -> Unit
 ) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f)),
-        modifier = Modifier.fillMaxWidth()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            // Group Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = group.displayTitle,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 14.sp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "${group.displayArtist} • ${formatMillisToTime(group.durationMs)}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
-                ) {
-                    Text(
-                        text = group.matchReason.title,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                    )
-                }
+        // Group Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = group.displayTitle,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "${group.displayArtist} • ${formatMillisToTime(group.durationMs)}",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            // Tracks within group
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                group.tracks.forEach { trackItem ->
-                    CleanDuplicateTrackRow(
-                        item = trackItem,
-                        isCurrentlyPlaying = currentPlayingSongId == trackItem.song.id && isPlaying,
-                        isSelectedForDeletion = selectedSongIds.contains(trackItem.song.id),
-                        onToggleSelect = { onToggleSongSelection(trackItem.song.id) },
-                        onPlay = { onPlaySong(trackItem.song) },
-                        onDelete = { onDeleteSingle(trackItem.song) }
-                    )
-                }
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh
+            ) {
+                Text(
+                    text = group.matchReason.title,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Individual copies in this duplicate group
+        group.tracks.forEachIndexed { idx, trackItem ->
+            FlatDuplicateTrackRow(
+                item = trackItem,
+                isCurrentlyPlaying = currentPlayingSongId == trackItem.song.id && isPlaying,
+                isSelectedForDeletion = selectedSongIds.contains(trackItem.song.id),
+                onToggleSelect = { onToggleSongSelection(trackItem.song.id) },
+                onPlay = { onPlaySong(trackItem.song) }
+            )
+            if (idx < group.tracks.lastIndex) {
+                HorizontalDivider(
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                    modifier = Modifier.padding(start = 56.dp, end = 16.dp)
+                )
             }
         }
     }
 }
 
-/**
- * Individual track row inside a duplicate group
- */
 @Composable
-private fun CleanDuplicateTrackRow(
+private fun FlatDuplicateTrackRow(
     item: DuplicateTrackItem,
     isCurrentlyPlaying: Boolean,
     isSelectedForDeletion: Boolean,
     onToggleSelect: () -> Unit,
-    onPlay: () -> Unit,
-    onDelete: () -> Unit
+    onPlay: () -> Unit
 ) {
     val isBest = item.isBestQuality
-
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = if (isBest) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
-        } else if (isSelectedForDeletion) {
-            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+    val folderDisplay = remember(item.song.folderPath, item.song.folderName) {
+        if (item.song.folderPath.isNotBlank()) {
+            formatReadableStoragePath(item.song.folderPath)
         } else {
-            MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
-        },
-        border = if (isBest) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-        } else if (isSelectedForDeletion) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
-        } else null,
+            item.song.folderName.ifBlank { "Internal Storage" }
+        }
+    }
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = if (!isBest) onToggleSelect else onPlay)
+            .background(
+                when {
+                    isBest -> MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
+                    isSelectedForDeletion -> MaterialTheme.colorScheme.error.copy(alpha = 0.06f)
+                    else -> Color.Transparent
+                }
+            )
+            .clickable(onClick = if (isBest) onPlay else onToggleSelect)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // Leading Best Indicator or Selection Checkbox
+        Box(
+            modifier = Modifier.size(32.dp),
+            contentAlignment = Alignment.Center
         ) {
-            // Best Quality indicator OR Checkbox
             if (isBest) {
-                Icon(
-                    Icons.Rounded.Star,
-                    contentDescription = "Best Quality Original",
-                    tint = Color(0xFF10B981),
-                    modifier = Modifier.size(20.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Verified,
+                        contentDescription = "Best copy",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             } else {
                 Checkbox(
                     checked = isSelectedForDeletion,
                     onCheckedChange = { onToggleSelect() },
-                    modifier = Modifier.size(24.dp)
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = MaterialTheme.colorScheme.error,
+                        checkmarkColor = MaterialTheme.colorScheme.onError,
+                        uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        // Spec Badge + Folder Location
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (isBest) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                    ) {
+                        Text(
+                            text = "Keep Best",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = item.qualityBadge,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    ),
+                    color = if (isBest) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
-            // File Information
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isBest) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF10B981).copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                "KEEP BEST",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 0.5.sp
-                                ),
-                                color = Color(0xFF10B981),
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
+            Text(
+                text = folderDisplay,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.5.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
 
-                    Text(
-                        text = "${item.fileExtension} • ${item.formattedSize}",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.5.sp),
-                        color = if (isBest) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                    )
-                }
+        Spacer(modifier = Modifier.width(8.dp))
 
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Rounded.FolderOpen,
-                        contentDescription = null,
-                        modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = item.song.folderName,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            // Quick Actions: Play Preview & Delete Icon
-            IconButton(
-                onClick = onPlay,
-                modifier = Modifier.size(32.dp)
-            ) {
+        // Play Preview Circle Button
+        Surface(
+            onClick = onPlay,
+            shape = CircleShape,
+            color = if (isCurrentlyPlaying) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            },
+            modifier = Modifier.requiredSize(34.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    imageVector = if (isCurrentlyPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = "Preview",
-                    tint = if (isCurrentlyPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    imageVector = if (isCurrentlyPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (isCurrentlyPlaying) "Pause preview" else "Play preview",
+                    tint = if (isCurrentlyPlaying) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
                     modifier = Modifier.size(18.dp)
                 )
-            }
-
-            if (!isBest) {
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.DeleteOutline,
-                        contentDescription = "Delete Copy",
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
             }
         }
     }

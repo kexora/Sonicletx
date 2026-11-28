@@ -51,6 +51,7 @@ import com.kexora.soniclet.radio.RadioBackgroundHost
 import com.kexora.soniclet.settings.SettingsSubPage
 import com.kexora.soniclet.utils.AudioSpecs
 import com.kexora.soniclet.utils.DuplicateGroup
+import com.kexora.soniclet.utils.DuplicateScanMode
 import com.kexora.soniclet.utils.SmartShuffleOrder
 import com.kexora.soniclet.utils.SmartShuffleUtil
 import com.kexora.soniclet.utils.UserBehaviorProfiler
@@ -2692,8 +2693,11 @@ class MusicViewModel @Inject constructor(
         newLyrics = newLyrics
     )
     fun setMinDurationFilter(durationMs: Long) = libVm.setMinDurationFilter(durationMs)
-    fun analyzeDuplicateGroups(): List<DuplicateGroup> = libVm.analyzeDuplicateGroups()
+    fun analyzeDuplicateGroups(
+        mode: DuplicateScanMode = DuplicateScanMode.SMART_MATCH
+    ): List<DuplicateGroup> = libVm.analyzeDuplicateGroups(mode)
     fun findDuplicateSongs(): List<List<Song>> = libVm.findDuplicateSongs()
+    fun onSongsExternallyDeleted(songIds: Collection<Long>) = libVm.onSongsExternallyDeleted(songIds)
     suspend fun deleteSongPhysical(song: Song): Boolean = libVm.deleteSongPhysical(song)
     fun deleteSong(song: Song, onResult: ((Boolean) -> Unit)? = null) = libVm.deleteSong(song, onResult)
     suspend fun moveSongPhysical(song: Song, targetFolderPath: String): Boolean = libVm.moveSongPhysical(song, targetFolderPath)

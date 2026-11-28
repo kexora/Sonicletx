@@ -1,10 +1,17 @@
 package com.kexora.soniclet.library
 
+import android.app.RecoverableSecurityException
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
+import android.content.IntentSender
 import android.content.SharedPreferences
 import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
+import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import com.kexora.soniclet.database.*
 import com.kexora.soniclet.settings.DiscoveredAudioFile
@@ -12,6 +19,7 @@ import com.kexora.soniclet.settings.DiscoveredHiddenFolder
 import com.kexora.soniclet.settings.HiddenFolderType
 import com.kexora.soniclet.ui.components.common.cleanSongTitle
 import java.io.File
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -340,34 +348,120 @@ internal class VaultRepository(
     }
 }
 
+sealed class DeleteFileOutcome {
+    data object Deleted : DeleteFileOutcome()
+    data class RequiresUserConsent(
+        val intentSender: IntentSender,
+        val filePath: String,
+        val folderPath: String
+    ) : DeleteFileOutcome()
+    data class Failed(val reason: String) : DeleteFileOutcome()
+}
+
 @Singleton
 class SystemHiddenRepository @Inject constructor(
     private val dao: SystemHiddenDao
 ) {
+    companion object {
+        private val CALL_KEYWORD_REGEX = Regex(
+            """(?:\bcall\b|callrec|call_rec|call\s*record|phone_record|phone\s*record|miui/sound_recorder/call_rec|\bacr\b|\bcube\b|cubecall)""",
+            RegexOption.IGNORE_CASE
+        )
+
+        // Matches phone-number patterns like +919876543210, +1-555-234-5678, or 10–13 digit subscriber numbers,
+        // while avoiding standard YYYYMMDD / YYYYMMDD_HHMMSS date-time recording stamps.
+        private val PHONE_NUMBER_REGEX = Regex("""(?:\+\d[\d\s\-()]{7,15}\d|(?<!\d)(?!20\d{6})\d{10,13}(?!\d))""")
+
+        private val VOICE_NOTE_KEYWORDS = listOf(
+            "whatsapp audio",
+            "whatsapp voice",
+            "voice notes",
+            "voice_note",
+            "voicenote",
+            "voice recorder",
+            "voicerecorder",
+            "ptt-",
+            "telegram",
+            "opus",
+            "memo",
+            "sound_recorder"
+        )
+
+        fun classifyFolder(
+            folderPath: String,
+            folderName: String,
+            audioFiles: List<DiscoveredAudioFile>,
+            hasNoMedia: Boolean,
+            isDotPrefixed: Boolean
+        ): HiddenFolderType {
+            val normalizedPath = folderPath.replace('\\', '/').lowercase(Locale.ROOT)
+            val normalizedName = folderName.lowercase(Locale.ROOT)
+
+            // 1. Call Recordings check (folder path/name or contained file names)
+            if (CALL_KEYWORD_REGEX.containsMatchIn(normalizedPath) ||
+                CALL_KEYWORD_REGEX.containsMatchIn(normalizedName)
+            ) {
+                return HiddenFolderType.CALL_RECORDING
+            }
+
+            val hasCallFileMatch = audioFiles.any { audio ->
+                val fn = audio.file.name.lowercase(Locale.ROOT)
+                CALL_KEYWORD_REGEX.containsMatchIn(fn) || PHONE_NUMBER_REGEX.containsMatchIn(audio.file.nameWithoutExtension)
+            }
+            if (hasCallFileMatch) {
+                return HiddenFolderType.CALL_RECORDING
+            }
+
+            // 2. Voice Notes check (folder path/name or contained file names/extensions)
+            if (VOICE_NOTE_KEYWORDS.any { normalizedPath.contains(it) || normalizedName.contains(it) }) {
+                return HiddenFolderType.VOICE_NOTE
+            }
+
+            val hasVoiceFileMatch = audioFiles.any { audio ->
+                val fn = audio.file.name.lowercase(Locale.ROOT)
+                audio.extension.equals("opus", ignoreCase = true) ||
+                    VOICE_NOTE_KEYWORDS.any { fn.contains(it) }
+            }
+            if (hasVoiceFileMatch) {
+                return HiddenFolderType.VOICE_NOTE
+            }
+
+            // 3. Hidden Folders (.nomedia, dot-prefixed, or generic recordings)
+            return HiddenFolderType.HIDDEN
+        }
+    }
+
     val cachedHiddenFoldersFlow: Flow<List<DiscoveredHiddenFolder>> = dao.getAllFoldersFlow().map { folderEntities ->
-        folderEntities.map { entity ->
-            val audios = dao.getAudiosForFolderSync(entity.path).map { audioEntity ->
-                DiscoveredAudioFile(
-                    file = File(audioEntity.filePath),
-                    title = audioEntity.title,
-                    durationMs = audioEntity.durationMs,
-                    sizeBytes = audioEntity.sizeBytes,
-                    extension = audioEntity.extension
-                )
-            }
-            val typeEnum = try {
-                HiddenFolderType.valueOf(entity.type)
-            } catch (_: Exception) {
-                HiddenFolderType.ALL
-            }
+        folderEntities.mapNotNull { entity ->
+            val audios = dao.getAudiosForFolderSync(entity.path)
+                .map { audioEntity ->
+                    DiscoveredAudioFile(
+                        file = File(audioEntity.filePath),
+                        title = audioEntity.title,
+                        durationMs = audioEntity.durationMs,
+                        sizeBytes = audioEntity.sizeBytes,
+                        extension = audioEntity.extension
+                    )
+                }
+                .filter { it.file.exists() }
+
+            if (audios.isEmpty()) return@mapNotNull null
+
+            val smartType = classifyFolder(
+                folderPath = entity.path,
+                folderName = entity.name,
+                audioFiles = audios,
+                hasNoMedia = entity.hasNoMedia,
+                isDotPrefixed = entity.isDotPrefixed
+            )
             DiscoveredHiddenFolder(
                 path = entity.path,
                 name = entity.name,
-                type = typeEnum,
+                type = smartType,
                 hasNoMedia = entity.hasNoMedia,
                 isDotPrefixed = entity.isDotPrefixed,
-                audioCount = entity.audioCount,
-                totalSizeBytes = entity.totalSizeBytes,
+                audioCount = audios.size,
+                totalSizeBytes = audios.sumOf { it.sizeBytes },
                 audioFiles = audios
             )
         }
@@ -387,25 +481,34 @@ class SystemHiddenRepository @Inject constructor(
                 }
             }
             if (!isDirty) {
-                return@withContext existingFolders.map { entity ->
-                    val audios = dao.getAudiosForFolderSync(entity.path).map { audioEntity ->
-                        DiscoveredAudioFile(
-                            file = File(audioEntity.filePath),
-                            title = audioEntity.title,
-                            durationMs = audioEntity.durationMs,
-                            sizeBytes = audioEntity.sizeBytes,
-                            extension = audioEntity.extension
-                        )
-                    }
-                    val typeEnum = try { HiddenFolderType.valueOf(entity.type) } catch (_: Exception) { HiddenFolderType.ALL }
+                return@withContext existingFolders.mapNotNull { entity ->
+                    val audios = dao.getAudiosForFolderSync(entity.path)
+                        .map { audioEntity ->
+                            DiscoveredAudioFile(
+                                file = File(audioEntity.filePath),
+                                title = audioEntity.title,
+                                durationMs = audioEntity.durationMs,
+                                sizeBytes = audioEntity.sizeBytes,
+                                extension = audioEntity.extension
+                            )
+                        }
+                        .filter { it.file.exists() }
+                    if (audios.isEmpty()) return@mapNotNull null
+                    val smartType = classifyFolder(
+                        folderPath = entity.path,
+                        folderName = entity.name,
+                        audioFiles = audios,
+                        hasNoMedia = entity.hasNoMedia,
+                        isDotPrefixed = entity.isDotPrefixed
+                    )
                     DiscoveredHiddenFolder(
                         path = entity.path,
                         name = entity.name,
-                        type = typeEnum,
+                        type = smartType,
                         hasNoMedia = entity.hasNoMedia,
                         isDotPrefixed = entity.isDotPrefixed,
-                        audioCount = entity.audioCount,
-                        totalSizeBytes = entity.totalSizeBytes,
+                        audioCount = audios.size,
+                        totalSizeBytes = audios.sumOf { it.sizeBytes },
                         audioFiles = audios
                     )
                 }
@@ -457,15 +560,21 @@ class SystemHiddenRepository @Inject constructor(
         val potentialTargetDirs = listOf(
             File(storageRoot, "Recordings"),
             File(storageRoot, "Recordings/Call"),
+            File(storageRoot, "Recordings/Call recordings"),
             File(storageRoot, "Recordings/Voice"),
+            File(storageRoot, "Music/Recordings"),
+            File(storageRoot, "Music/Recordings/Call Recordings"),
             File(storageRoot, "CallRecordings"),
             File(storageRoot, "call_recordings"),
+            File(storageRoot, "ACRCalls"),
+            File(storageRoot, "CubeCallRecorder/All"),
             File(storageRoot, "MIUI/sound_recorder"),
             File(storageRoot, "MIUI/sound_recorder/call_rec"),
             File(storageRoot, "Samsung/Voice Recorder"),
             File(storageRoot, "VoiceRecorder"),
             File(storageRoot, "SoundRecorder"),
             File(storageRoot, "Sounds"),
+            File(storageRoot, "Sounds/CallRecord"),
             File(storageRoot, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Audio"),
             File(storageRoot, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Voice Notes"),
             File(storageRoot, "WhatsApp/Media/WhatsApp Audio"),
@@ -484,7 +593,7 @@ class SystemHiddenRepository @Inject constructor(
         }
 
         fun crawlDirectory(dir: File, depth: Int) {
-            if (depth > 4) return
+            if (depth > 5) return
             val children = dir.listFiles() ?: return
             var hasNoMedia = false
             val subdirs = mutableListOf<File>()
@@ -492,13 +601,26 @@ class SystemHiddenRepository @Inject constructor(
             for (child in children) {
                 if (child.name == ".nomedia") {
                     hasNoMedia = true
-                } else if (child.isDirectory && !child.name.startsWith("Android/data") && !child.name.startsWith("Android/obb")) {
-                    subdirs.add(child)
+                } else if (child.isDirectory) {
+                    val abs = child.absolutePath
+                    if (!abs.contains("/Android/data") && !abs.contains("/Android/obb")) {
+                        subdirs.add(child)
+                    }
                 }
             }
 
             val isDotPrefixed = dir.name.startsWith(".") && dir != storageRoot
-            val isTarget = hasNoMedia || isDotPrefixed || dir.name.contains("record", ignoreCase = true) || dir.name.contains("voice", ignoreCase = true) || dir.name.contains("call", ignoreCase = true)
+            val lowerName = dir.name.lowercase(Locale.ROOT)
+            val isTarget = hasNoMedia ||
+                isDotPrefixed ||
+                lowerName.contains("record") ||
+                lowerName.contains("voice") ||
+                lowerName.contains("call") ||
+                lowerName.contains("memo") ||
+                lowerName.contains("whatsapp") ||
+                lowerName.contains("telegram") ||
+                lowerName.contains("acr") ||
+                lowerName.contains("cube")
 
             if (isTarget && !visitedPaths.contains(dir.absolutePath)) {
                 val folderObj = inspectFolderForAudio(dir, supportedExtensions)
@@ -536,7 +658,7 @@ class SystemHiddenRepository @Inject constructor(
                 continue
             }
             if (file.isFile) {
-                val ext = file.extension.lowercase()
+                val ext = file.extension.lowercase(Locale.ROOT)
                 if (supportedExtensions.contains(ext)) {
                     totalSize += file.length()
                     audioList.add(
@@ -555,14 +677,13 @@ class SystemHiddenRepository @Inject constructor(
         if (audioList.isEmpty()) return null
 
         val isDotPrefixed = dir.name.startsWith(".")
-        val lowerPath = dir.absolutePath.lowercase()
-        val type = when {
-            lowerPath.contains("call") -> HiddenFolderType.CALL_RECORDING
-            lowerPath.contains("voice") || lowerPath.contains("sound_recorder") || lowerPath.contains("memo") -> HiddenFolderType.VOICE_NOTE
-            hasNoMedia -> HiddenFolderType.NOMEDIA
-            isDotPrefixed -> HiddenFolderType.DOT_FOLDER
-            else -> HiddenFolderType.ALL
-        }
+        val type = classifyFolder(
+            folderPath = dir.absolutePath,
+            folderName = dir.name,
+            audioFiles = audioList,
+            hasNoMedia = hasNoMedia,
+            isDotPrefixed = isDotPrefixed
+        )
 
         return DiscoveredHiddenFolder(
             path = dir.absolutePath,
@@ -602,4 +723,232 @@ class SystemHiddenRepository @Inject constructor(
         }
         return@withContext false
     }
+
+    /**
+     * Unhides a hidden/recording folder so its audio files appear in Soniclet's main library.
+     * - Removes `.nomedia` if present & writable and rescans files into MediaStore.
+     * - If `.nomedia` is protected by Android Scoped Storage, safely copies audio files into
+     *   `Music/Soniclet Restored/<folderName>` via MediaStore so they appear immediately.
+     * - If there is no `.nomedia` (e.g., auto-hidden recording folder), scans files into MediaStore
+     *   so whitelisting via `restoreFolder` surfaces them immediately.
+     */
+    suspend fun unhideFolderToLibrary(
+        context: Context,
+        folder: DiscoveredHiddenFolder
+    ): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        try {
+            val noMediaFile = File(folder.path, ".nomedia")
+            if (noMediaFile.exists()) {
+                if (noMediaFile.delete()) {
+                    val paths = folder.audioFiles.map { it.file.absolutePath }.toTypedArray()
+                    if (paths.isNotEmpty()) {
+                        MediaScannerConnection.scanFile(context, paths, null, null)
+                    }
+                    dao.deleteFolderByPath(folder.path)
+                    dao.deleteAudiosInFolder(folder.path)
+                    val count = folder.audioFiles.size
+                    val unit = if (count == 1) "file" else "files"
+                    return@withContext true to "Unhid folder • $count $unit added to your library"
+                }
+
+                // Scoped Storage blocked deleting `.nomedia` -> export copies to Music/Soniclet Restored
+                val safeFolderName = folder.name.replace(Regex("""[^\w\s\-]"""), "").ifBlank { "Restored" }
+                var copiedCount = 0
+                val scannedPaths = mutableListOf<String>()
+
+                for (audio in folder.audioFiles) {
+                    if (!audio.file.exists() || !audio.file.canRead()) continue
+                    val mime = mimeTypeForExtension(audio.extension)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val values = ContentValues().apply {
+                            put(MediaStore.Audio.Media.DISPLAY_NAME, audio.file.name)
+                            put(MediaStore.Audio.Media.TITLE, audio.title)
+                            put(MediaStore.Audio.Media.MIME_TYPE, mime)
+                            put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/Soniclet Restored/$safeFolderName")
+                            put(MediaStore.Audio.Media.IS_PENDING, 1)
+                        }
+                        val insertedUri = context.contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+                        if (insertedUri != null) {
+                            try {
+                                context.contentResolver.openOutputStream(insertedUri)?.use { out ->
+                                    audio.file.inputStream().use { input -> input.copyTo(out) }
+                                }
+                                values.clear()
+                                values.put(MediaStore.Audio.Media.IS_PENDING, 0)
+                                context.contentResolver.update(insertedUri, values, null, null)
+                                copiedCount++
+                            } catch (_: Exception) {
+                                context.contentResolver.delete(insertedUri, null, null)
+                            }
+                        }
+                    } else {
+                        val musicDir = File(
+                            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+                            "Soniclet Restored/$safeFolderName"
+                        )
+                        if (!musicDir.exists()) musicDir.mkdirs()
+                        val target = File(musicDir, audio.file.name)
+                        if (!target.exists()) {
+                            audio.file.copyTo(target, overwrite = false)
+                        }
+                        scannedPaths.add(target.absolutePath)
+                        copiedCount++
+                    }
+                }
+                if (scannedPaths.isNotEmpty()) {
+                    MediaScannerConnection.scanFile(context, scannedPaths.toTypedArray(), null, null)
+                }
+                return@withContext if (copiedCount > 0) {
+                    val unit = if (copiedCount == 1) "file" else "files"
+                    true to "Added $copiedCount $unit to your Music library"
+                } else {
+                    false to "Could not add files from this protected folder"
+                }
+            } else {
+                // Non-.nomedia folder (e.g., Recordings) -> scan files and remove from hidden vault cache
+                val paths = folder.audioFiles.map { it.file.absolutePath }.toTypedArray()
+                if (paths.isNotEmpty()) {
+                    MediaScannerConnection.scanFile(context, paths, null, null)
+                }
+                dao.deleteFolderByPath(folder.path)
+                dao.deleteAudiosInFolder(folder.path)
+                val count = folder.audioFiles.size
+                val unit = if (count == 1) "file" else "files"
+                return@withContext true to "Added $count $unit to your library"
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false to "Could not add folder to library"
+        }
+    }
+
+    /**
+     * Permanently deletes a discovered audio file with Android 10+ Scoped Storage consent support
+     * (`MediaStore.createDeleteRequest` on Android 11+, `RecoverableSecurityException` on Android 10).
+     */
+    suspend fun deleteAudioFile(
+        context: Context,
+        audioFile: DiscoveredAudioFile,
+        folderPath: String
+    ): DeleteFileOutcome = withContext(Dispatchers.IO) {
+        val file = audioFile.file
+        try {
+            if (!file.exists()) {
+                onExternalDeleteConfirmed(file.absolutePath, folderPath)
+                return@withContext DeleteFileOutcome.Deleted
+            }
+
+            if (file.delete()) {
+                // Also remove MediaStore row if indexed
+                findMediaStoreAudioUri(context, file)?.let { uri ->
+                    try {
+                        context.contentResolver.delete(uri, null, null)
+                    } catch (_: Exception) {}
+                }
+                onExternalDeleteConfirmed(file.absolutePath, folderPath)
+                return@withContext DeleteFileOutcome.Deleted
+            }
+
+            // Direct delete failed (Android 10+ Scoped Storage) -> look up MediaStore URI
+            val mediaUri = findMediaStoreAudioUri(context, file)
+                ?: return@withContext DeleteFileOutcome.Failed("Android restricted deleting this file directly")
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, listOf(mediaUri))
+                return@withContext DeleteFileOutcome.RequiresUserConsent(
+                    intentSender = pendingIntent.intentSender,
+                    filePath = file.absolutePath,
+                    folderPath = folderPath
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    val rows = context.contentResolver.delete(mediaUri, null, null)
+                    if (rows > 0) {
+                        onExternalDeleteConfirmed(file.absolutePath, folderPath)
+                        return@withContext DeleteFileOutcome.Deleted
+                    }
+                } catch (rse: RecoverableSecurityException) {
+                    return@withContext DeleteFileOutcome.RequiresUserConsent(
+                        intentSender = rse.userAction.actionIntent.intentSender,
+                        filePath = file.absolutePath,
+                        folderPath = folderPath
+                    )
+                }
+            }
+            DeleteFileOutcome.Failed("Could not delete this file")
+        } catch (e: Exception) {
+            e.printStackTrace()
+            DeleteFileOutcome.Failed("Could not delete this file")
+        }
+    }
+
+    suspend fun onExternalDeleteConfirmed(filePath: String, folderPath: String) = withContext(Dispatchers.IO) {
+        dao.deleteAudioByPath(filePath)
+        val remaining = dao.getAudiosForFolderSync(folderPath).filter { File(it.filePath).exists() }
+        if (remaining.isEmpty()) {
+            dao.deleteFolderByPath(folderPath)
+        } else {
+            val existingFolder = dao.getFoldersSync().find { it.path == folderPath }
+            if (existingFolder != null) {
+                dao.insertFolders(
+                    listOf(
+                        existingFolder.copy(
+                            audioCount = remaining.size,
+                            totalSizeBytes = remaining.sumOf { it.sizeBytes }
+                        )
+                    )
+                )
+            }
+        }
+    }
+
+    private fun findMediaStoreAudioUri(context: Context, file: File): Uri? {
+        val projection = arrayOf(MediaStore.Audio.Media._ID)
+        // Primary query: exact path
+        try {
+            context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                "${MediaStore.Audio.Media.DATA} = ?",
+                arrayOf(file.absolutePath),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(0)
+                    return ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+                }
+            }
+        } catch (_: Exception) {}
+
+        // Fallback query: display name + size
+        try {
+            context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                "${MediaStore.Audio.Media.DISPLAY_NAME} = ? AND ${MediaStore.Audio.Media.SIZE} = ?",
+                arrayOf(file.name, file.length().toString()),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(0)
+                    return ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+                }
+            }
+        } catch (_: Exception) {}
+
+        return null
+    }
+
+    private fun mimeTypeForExtension(ext: String): String = when (ext.lowercase(Locale.ROOT)) {
+        "mp3" -> "audio/mpeg"
+        "m4a", "aac" -> "audio/mp4"
+        "wav" -> "audio/wav"
+        "flac" -> "audio/flac"
+        "ogg" -> "audio/ogg"
+        "opus" -> "audio/opus"
+        "amr" -> "audio/amr"
+        "3gp" -> "audio/3gpp"
+        else -> "audio/*"
+    }
 }
+

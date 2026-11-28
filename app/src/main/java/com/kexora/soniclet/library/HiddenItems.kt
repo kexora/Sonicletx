@@ -1,21 +1,20 @@
 package com.kexora.soniclet.library
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,15 +35,16 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.kexora.soniclet.LocalPlayerBottomPadding
 import com.kexora.soniclet.database.Song
+import com.kexora.soniclet.settings.formatReadableStoragePath
 import com.kexora.soniclet.ui.components.common.MadeInIndiaFooter
 import com.kexora.soniclet.ui.components.common.formatMillisToTime
 import com.kexora.soniclet.ui.components.common.scrollFade
 import com.kexora.soniclet.ui.components.player.FallbackAlbumArt
 import com.kexora.soniclet.utils.fuzzyMatch
+import kotlinx.coroutines.launch
 
 /**
- * Clean, lightweight Hidden Folders & Songs screen following the app's circular/pill design system.
- * The top pill header and menus stay permanently visible so switching between Folders and Songs is instant and smooth.
+ * Box-free, edge-to-edge Hidden Items screen with instant library sync and 1-tap Undo support.
  */
 @Composable
 fun HiddenItems(
@@ -57,6 +58,8 @@ fun HiddenItems(
     onRestoreAllFolders: () -> Unit,
     onRestoreSong: (Long) -> Unit,
     onRestoreAllSongs: () -> Unit,
+    onExcludeFolder: (String) -> Unit = {},
+    onExcludeSong: (Long) -> Unit = {},
     isLoading: Boolean = false,
     onOpenSystemHiddenVault: (() -> Unit)? = null,
     onBack: () -> Unit,
@@ -64,7 +67,9 @@ fun HiddenItems(
 ) {
     BackHandler(onBack = onBack)
 
-    var gridViewEnabled by rememberSaveable { mutableStateOf(isGridMode) }
+    val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
     var currentTab by rememberSaveable { mutableStateOf(0) } // 0: Folders, 1: Songs
     var showRestoreAllConfirmDialog by remember { mutableStateOf(false) }
 
@@ -77,7 +82,7 @@ fun HiddenItems(
                 val cleanFolder = song.folderPath.trimEnd('/')
                 val cleanFile = song.filePath.trimEnd('/')
                 cleanFolder == cleanExcluded || cleanFolder.startsWith("$cleanExcluded/") ||
-                cleanFile == cleanExcluded || cleanFile.startsWith("$cleanExcluded/")
+                    cleanFile == cleanExcluded || cleanFile.startsWith("$cleanExcluded/")
             }
         }
     }
@@ -94,212 +99,282 @@ fun HiddenItems(
         if (searchQuery.isBlank()) hiddenSongs
         else hiddenSongs.filter {
             it.title.fuzzyMatch(searchQuery) ||
-            it.artist.fuzzyMatch(searchQuery) ||
-            it.album.fuzzyMatch(searchQuery)
+                it.artist.fuzzyMatch(searchQuery) ||
+                it.album.fuzzyMatch(searchQuery)
         }
     }
 
-    val totalHiddenCount = excludedFolders.size + hiddenSongs.size
-    val bottomPadding = LocalPlayerBottomPadding.current + 8.dp
+    val activeTabCount = if (currentTab == 0) filteredHiddenFolders.size else filteredHiddenSongs.size
+    val bottomPadding = maxOf(110.dp, LocalPlayerBottomPadding.current + 16.dp)
+    val hairlineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
 
-    Column(
-        modifier = modifier.fillMaxSize()
+    fun showUndoSnackbar(message: String, onUndo: () -> Unit) {
+        coroutineScope.launch {
+            snackbarHostState.currentSnackbarData?.dismiss()
+            val result = snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                onUndo()
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Transparent)
     ) {
-        // ALWAYS VISIBLE TOP PILL CONTROLS ROW (Never disappears when switching tabs or when a tab is empty)
-        HiddenPillControlsRow(
-            currentTab = currentTab,
-            foldersCount = filteredHiddenFolders.size,
-            songsCount = filteredHiddenSongs.size,
-            isGrid = gridViewEnabled,
-            showGridToggle = currentTab == 0 && filteredHiddenFolders.isNotEmpty(),
-            totalHiddenCount = totalHiddenCount,
-            onSelectTab = { currentTab = it },
-            onToggleGrid = { gridViewEnabled = !gridViewEnabled },
-            onRestoreAll = { showRestoreAllConfirmDialog = true },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 6.dp)
-        )
-
-        // System Hidden & Recordings Vault Direct Shortcut Card
-        if (onOpenSystemHiddenVault != null) {
-            Surface(
-                onClick = { onOpenSystemHiddenVault() },
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                border = androidx.compose.foundation.BorderStroke(
-                    0.5.dp,
-                    androidx.compose.ui.graphics.Brush.horizontalGradient(
-                        listOf(Color(0xFF6366F1).copy(alpha = 0.5f), Color(0xFF10B981).copy(alpha = 0.5f))
-                    )
-                ),
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Sleek 36.dp CircleShape pill tabs + clear Unhide All pill button
+            HiddenPillControlsRow(
+                currentTab = currentTab,
+                foldersCount = filteredHiddenFolders.size,
+                songsCount = filteredHiddenSongs.size,
+                showUnhideAll = activeTabCount > 0,
+                onSelectTab = { currentTab = it },
+                onRestoreAll = { showRestoreAllConfirmDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 4.dp)
-            ) {
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
+            // Box-free edge-to-edge Recordings & Hidden Vault link row
+            if (onOpenSystemHiddenVault != null) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenSystemHiddenVault() }
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .testTag("open_recordings_hidden_vault_row"),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF10B981).copy(alpha = 0.15f)),
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.PhoneInTalk,
                             contentDescription = null,
-                            tint = Color(0xFF10B981),
-                            modifier = Modifier.size(17.dp)
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(19.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "System Hidden & Recordings Vault",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, fontSize = 12.5.sp),
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "Recordings & Hidden Vault",
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.5.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
+                        Spacer(modifier = Modifier.height(1.dp))
                         Text(
-                            text = "Browse call recordings, voice notes & .nomedia files",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.5.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "Browse call recordings, voice notes & hidden folders",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+
                     Icon(
                         imageVector = Icons.Rounded.ChevronRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
+                        contentDescription = "Open vault",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
                     )
+                }
+
+                HorizontalDivider(
+                    thickness = 0.5.dp,
+                    color = hairlineColor
+                )
+            }
+
+            // Dynamic Content Area (Smooth transition between Folders and Songs)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                if (isLoading) {
+                    com.kexora.soniclet.ui.components.common.SkeletonSongList(
+                        count = 6,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    AnimatedContent(
+                        targetState = currentTab,
+                        transitionSpec = {
+                            fadeIn(tween(160)) togetherWith fadeOut(tween(160))
+                        },
+                        label = "HiddenContentTabs"
+                    ) { tab ->
+                        if (tab == 0) {
+                            if (filteredHiddenFolders.isEmpty()) {
+                                EmptyVaultState(
+                                    icon = Icons.Rounded.FolderOff,
+                                    title = "No Hidden Folders",
+                                    description = if (searchQuery.isNotEmpty()) {
+                                        "No hidden folders match \"$searchQuery\"."
+                                    } else {
+                                        "Folders you hide from your library will appear here."
+                                    }
+                                )
+                            } else {
+                                val listState = rememberLazyListState()
+                                LazyColumn(
+                                    state = listState,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .scrollFade(listState)
+                                        .testTag("hidden_folders_list"),
+                                    contentPadding = PaddingValues(bottom = bottomPadding)
+                                ) {
+                                    itemsIndexed(filteredHiddenFolders, key = { _, path -> path }) { index, path ->
+                                        val cleanTarget = path.trimEnd('/')
+                                        val count = remember(path, allSongs) {
+                                            allSongs.count { song ->
+                                                val cf = song.folderPath.trimEnd('/')
+                                                val fp = song.filePath.trimEnd('/')
+                                                cf == cleanTarget || cf.startsWith("$cleanTarget/") ||
+                                                    fp == cleanTarget || fp.startsWith("$cleanTarget/")
+                                            }
+                                        }
+                                        val folderName = path.substringAfterLast('/').ifBlank { "Folder" }
+
+                                        FlatHiddenFolderItemRow(
+                                            path = path,
+                                            songsCount = count,
+                                            onRestore = {
+                                                onRestoreFolder(path)
+                                                showUndoSnackbar("Unhid \"$folderName\"") {
+                                                    onExcludeFolder(path)
+                                                }
+                                            }
+                                        )
+
+                                        if (index < filteredHiddenFolders.lastIndex) {
+                                            HorizontalDivider(
+                                                thickness = 0.5.dp,
+                                                color = hairlineColor,
+                                                modifier = Modifier.padding(horizontal = 16.dp)
+                                            )
+                                        }
+                                    }
+
+                                    item(key = "hf_list_footer") {
+                                        MadeInIndiaFooter()
+                                    }
+                                }
+                            }
+                        } else {
+                            if (filteredHiddenSongs.isEmpty()) {
+                                EmptyVaultState(
+                                    icon = Icons.Rounded.MusicOff,
+                                    title = "No Hidden Songs",
+                                    description = if (searchQuery.isNotEmpty()) {
+                                        "No hidden songs match \"$searchQuery\"."
+                                    } else {
+                                        "Songs you hide from your library will appear here."
+                                    }
+                                )
+                            } else {
+                                val listState = rememberLazyListState()
+                                LazyColumn(
+                                    state = listState,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .scrollFade(listState)
+                                        .testTag("hidden_songs_list"),
+                                    contentPadding = PaddingValues(bottom = bottomPadding)
+                                ) {
+                                    itemsIndexed(filteredHiddenSongs, key = { _, song -> song.id }) { index, song ->
+                                        FlatHiddenSongItemRow(
+                                            song = song,
+                                            onRestore = {
+                                                onRestoreSong(song.id)
+                                                showUndoSnackbar("Unhid \"${song.title}\"") {
+                                                    onExcludeSong(song.id)
+                                                }
+                                            }
+                                        )
+
+                                        if (index < filteredHiddenSongs.lastIndex) {
+                                            HorizontalDivider(
+                                                thickness = 0.5.dp,
+                                                color = hairlineColor,
+                                                modifier = Modifier.padding(horizontal = 16.dp)
+                                            )
+                                        }
+                                    }
+
+                                    item(key = "hs_list_footer") {
+                                        MadeInIndiaFooter()
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // Dynamic Content Area (Smooth transition between Folders and Songs)
-        Box(
+        // Undo Snackbar cleanly anchored above MiniPlayer
+        SnackbarHost(
+            hostState = snackbarHostState,
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            if (isLoading) {
-                com.kexora.soniclet.ui.components.common.SkeletonSongList(
-                    count = 6,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                AnimatedContent(
-                    targetState = currentTab,
-                    transitionSpec = {
-                        fadeIn(tween(160)) togetherWith fadeOut(tween(160))
-                    },
-                    label = "HiddenContentTabs"
-                ) { tab ->
-                    if (tab == 0) {
-                        // FOLDERS TAB
-                        if (filteredHiddenFolders.isEmpty()) {
-                            EmptyVaultState(
-                                icon = Icons.Rounded.FolderOff,
-                                title = "No Hidden Folders",
-                                description = if (searchQuery.isNotEmpty()) "No hidden folders match \"$searchQuery\"." else "You haven't hidden any folders. Excluded folders will appear here."
-                            )
-                        } else if (gridViewEnabled) {
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(2),
-                                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = bottomPadding),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(filteredHiddenFolders, key = { it }) { path ->
-                                    val count = remember(path, allSongs) {
-                                        allSongs.count { it.folderPath == path || it.filePath.startsWith(path) }
-                                    }
-                                    CircularHiddenFolderGridCard(
-                                        path = path,
-                                        songsCount = count,
-                                        onRestore = { onRestoreFolder(path) }
-                                    )
-                                }
-
-                                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }, key = "hf_grid_footer") {
-                                    MadeInIndiaFooter()
-                                }
-                            }
-                        } else {
-                            val listState = rememberLazyListState()
-                            LazyColumn(
-                                state = listState,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .scrollFade(listState),
-                                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = bottomPadding),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                items(filteredHiddenFolders, key = { it }) { path ->
-                                    val count = remember(path, allSongs) {
-                                        allSongs.count { it.folderPath == path || it.filePath.startsWith(path) }
-                                    }
-                                    CircularHiddenFolderListRow(
-                                        path = path,
-                                        songsCount = count,
-                                        onRestore = { onRestoreFolder(path) }
-                                    )
-                                }
-
-                                item(key = "hf_list_footer") {
-                                    MadeInIndiaFooter()
-                                }
-                            }
-                        }
-                    } else {
-                        // SONGS TAB
-                        if (filteredHiddenSongs.isEmpty()) {
-                            EmptyVaultState(
-                                icon = Icons.Rounded.MusicOff,
-                                title = "No Hidden Songs",
-                                description = if (searchQuery.isNotEmpty()) "No hidden songs match \"$searchQuery\"." else "You haven't hidden any songs. Hidden individual tracks will appear here."
-                            )
-                        } else {
-                            val listState = rememberLazyListState()
-                            LazyColumn(
-                                state = listState,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .scrollFade(listState),
-                                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = bottomPadding),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                items(filteredHiddenSongs, key = { it.id }) { song ->
-                                    CircularHiddenSongRow(
-                                        song = song,
-                                        onRestore = { onRestoreSong(song.id) }
-                                    )
-                                }
-
-                                item(key = "hs_list_footer") {
-                                    MadeInIndiaFooter()
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = maxOf(108.dp, LocalPlayerBottomPadding.current + 12.dp))
+        ) { data ->
+            Snackbar(
+                snackbarData = data,
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                actionColor = MaterialTheme.colorScheme.primary
+            )
         }
     }
 
-    // Confirmation Dialog for Restore All
+    // Confirmation Dialog for Unhide All
     if (showRestoreAllConfirmDialog) {
-        val targetName = if (currentTab == 0) "all ${excludedFolders.size} hidden folders" else "all ${hiddenSongs.size} hidden songs"
+        val folderSnapshot = excludedFolders.toList()
+        val songSnapshot = excludedSongIds.toList()
+        val targetLabel = if (currentTab == 0) {
+            val count = folderSnapshot.size
+            if (count == 1) "1 hidden folder" else "all $count hidden folders"
+        } else {
+            val count = hiddenSongs.size
+            if (count == 1) "1 hidden song" else "all $count hidden songs"
+        }
+
         AlertDialog(
             onDismissRequest = { showRestoreAllConfirmDialog = false },
-            icon = { Icon(Icons.Rounded.Restore, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Unhide All Items?") },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.Visibility,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            title = { Text("Unhide All?", fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "Are you sure you want to restore $targetName? They will immediately reappear in your library and player.",
+                    "Show $targetLabel in your music library again?",
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -307,11 +382,25 @@ fun HiddenItems(
                 Button(
                     onClick = {
                         showRestoreAllConfirmDialog = false
-                        if (currentTab == 0) onRestoreAllFolders() else onRestoreAllSongs()
+                        if (currentTab == 0) {
+                            onRestoreAllFolders()
+                            val count = folderSnapshot.size
+                            val unit = if (count == 1) "folder" else "folders"
+                            showUndoSnackbar("Unhid $count $unit") {
+                                folderSnapshot.forEach { onExcludeFolder(it) }
+                            }
+                        } else {
+                            onRestoreAllSongs()
+                            val count = hiddenSongs.size
+                            val unit = if (count == 1) "song" else "songs"
+                            showUndoSnackbar("Unhid $count $unit") {
+                                songSnapshot.forEach { onExcludeSong(it) }
+                            }
+                        }
                     },
                     shape = CircleShape
                 ) {
-                    Text("Unhide All")
+                    Text("Unhide All", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -323,117 +412,122 @@ fun HiddenItems(
     }
 }
 
-/**
- * Top Pill Control Row with Folders & Songs Filter Pills + Clean Action Icons
- * Simple, minimalist, no bulky circle background behind action icons.
- */
 @Composable
 private fun HiddenPillControlsRow(
     currentTab: Int,
     foldersCount: Int,
     songsCount: Int,
-    isGrid: Boolean,
-    showGridToggle: Boolean,
-    totalHiddenCount: Int,
+    showUnhideAll: Boolean,
     onSelectTab: (Int) -> Unit,
-    onToggleGrid: () -> Unit,
     onRestoreAll: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val inactiveBorder = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Pill Tabs: Folders vs Songs
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Folders Pill
+            // Folders Pill (36.dp CircleShape)
+            val foldersActive = currentTab == 0
             Surface(
                 onClick = { onSelectTab(0) },
                 shape = CircleShape,
-                color = if (currentTab == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
-                contentColor = if (currentTab == 0) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                color = if (foldersActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = if (foldersActive) null else inactiveBorder,
+                modifier = Modifier
+                    .height(36.dp)
+                    .testTag("hidden_tab_folders")
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(horizontal = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.FolderOff,
                         contentDescription = null,
+                        tint = if (foldersActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(15.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "Folders ($foldersCount)",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = if (currentTab == 0) FontWeight.Bold else FontWeight.Medium,
-                            fontSize = 12.sp
-                        )
+                        fontSize = 12.5.sp,
+                        fontWeight = if (foldersActive) FontWeight.Bold else FontWeight.Medium,
+                        color = if (foldersActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
 
-            // Songs Pill
+            // Songs Pill (36.dp CircleShape)
+            val songsActive = currentTab == 1
             Surface(
                 onClick = { onSelectTab(1) },
                 shape = CircleShape,
-                color = if (currentTab == 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
-                contentColor = if (currentTab == 1) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                color = if (songsActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = if (songsActive) null else inactiveBorder,
+                modifier = Modifier
+                    .height(36.dp)
+                    .testTag("hidden_tab_songs")
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(horizontal = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.MusicOff,
                         contentDescription = null,
+                        tint = if (songsActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(15.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "Songs ($songsCount)",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = if (currentTab == 1) FontWeight.Bold else FontWeight.Medium,
-                            fontSize = 12.sp
-                        )
+                        fontSize = 12.5.sp,
+                        fontWeight = if (songsActive) FontWeight.Bold else FontWeight.Medium,
+                        color = if (songsActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
         }
 
-        // Action Icons (Clean simple icons, NO circle bg behind icon)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            if (showGridToggle) {
-                IconButton(
-                    onClick = onToggleGrid,
-                    modifier = Modifier.size(36.dp)
+        // Clear Unhide All pill button (replaces ambiguous clock icon)
+        if (showUnhideAll) {
+            Surface(
+                onClick = onRestoreAll,
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                modifier = Modifier
+                    .height(36.dp)
+                    .testTag("hidden_unhide_all_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Icon(
-                        imageVector = if (isGrid) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-                        contentDescription = "Toggle Grid/List",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            if (totalHiddenCount > 0) {
-                IconButton(
-                    onClick = onRestoreAll,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Restore,
-                        contentDescription = "Unhide All",
+                        imageVector = Icons.Rounded.Visibility,
+                        contentDescription = "Unhide all",
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "Unhide All",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -441,142 +535,98 @@ private fun HiddenPillControlsRow(
     }
 }
 
-/**
- * Modern Circular Folder List Row (Clean UI, simple unhide icon button)
- */
 @Composable
-private fun CircularHiddenFolderListRow(
+private fun FlatHiddenFolderItemRow(
     path: String,
     songsCount: Int,
     onRestore: () -> Unit
 ) {
-    val name = path.substringAfterLast('/')
-    val parent = path.substringBeforeLast('/', "Internal Storage")
+    val name = path.substringAfterLast('/').ifBlank { "Folder" }
+    val readableParent = remember(path) {
+        val parentPath = path.substringBeforeLast('/', "")
+        formatReadableStoragePath(parentPath)
+    }
+    val subtitle = when {
+        songsCount == 1 -> "1 song • $readableParent"
+        songsCount > 1 -> "$songsCount songs • $readableParent"
+        else -> readableParent
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f))
             .clickable(onClick = onRestore)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Disc icon
-        Icon(
-            imageVector = Icons.Rounded.FolderOff,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(24.dp)
-        )
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.FolderOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
 
         Spacer(modifier = Modifier.width(12.dp))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = name,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.5.sp
+                ),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = if (songsCount > 0) "$songsCount tracks • $parent" else parent,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
 
-        Spacer(modifier = Modifier.width(6.dp))
+        Spacer(modifier = Modifier.width(10.dp))
 
-        // Simple Unhide Icon Button (NO circle background behind icon)
-        IconButton(
+        // Crisp unmistakable Unhide pill button
+        Surface(
             onClick = onRestore,
-            modifier = Modifier.size(36.dp)
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+            modifier = Modifier
+                .height(32.dp)
+                .testTag("unhide_folder_button")
         ) {
-            Icon(
-                imageVector = Icons.Rounded.Restore,
-                contentDescription = "Unhide Folder",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
+            Box(
+                modifier = Modifier.padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Unhide",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
         }
     }
 }
 
-/**
- * Modern Folder Grid Card (Clean UI, simple unhide icon button)
- */
 @Composable
-private fun CircularHiddenFolderGridCard(
-    path: String,
-    songsCount: Int,
-    onRestore: () -> Unit
-) {
-    val name = path.substringAfterLast('/')
-    val parent = path.substringBeforeLast('/', "Storage")
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f))
-            .clickable(onClick = onRestore)
-            .padding(horizontal = 10.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.FolderOff,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(32.dp)
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = name,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 13.sp),
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        Text(
-            text = if (songsCount > 0) "$songsCount tracks" else parent,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Simple Unhide Icon Button
-        IconButton(
-            onClick = onRestore,
-            modifier = Modifier.size(32.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Restore,
-                contentDescription = "Unhide",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(19.dp)
-            )
-        }
-    }
-}
-
-/**
- * Modern Circular Song Row for Hidden Songs (Clean UI, simple unhide icon button)
- */
-@Composable
-private fun CircularHiddenSongRow(
+private fun FlatHiddenSongItemRow(
     song: Song,
     onRestore: () -> Unit
 ) {
@@ -585,18 +635,15 @@ private fun CircularHiddenSongRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f))
             .clickable(onClick = onRestore)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Circular / Pill Album Art
         Box(
             modifier = Modifier
                 .size(42.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             contentAlignment = Alignment.Center
         ) {
             if (song.albumArtUri != null) {
@@ -605,7 +652,7 @@ private fun CircularHiddenSongRow(
                         .data(song.albumArtUri)
                         .crossfade(true)
                         .build(),
-                    contentDescription = null,
+                    contentDescription = "Cover art for ${song.title}",
                     modifier = Modifier.fillMaxSize(),
                     error = { FallbackAlbumArt(title = song.title, modifier = Modifier.fillMaxSize()) }
                 )
@@ -619,7 +666,10 @@ private fun CircularHiddenSongRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = song.title,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
+                ),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -627,33 +677,41 @@ private fun CircularHiddenSongRow(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = "${song.artist} • ${formatMillisToTime(song.duration)}",
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
 
-        Spacer(modifier = Modifier.width(6.dp))
+        Spacer(modifier = Modifier.width(10.dp))
 
-        // Simple Unhide Icon Button (NO circle background behind icon)
-        IconButton(
+        // Crisp unmistakable Unhide pill button
+        Surface(
             onClick = onRestore,
-            modifier = Modifier.size(36.dp)
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+            modifier = Modifier
+                .height(32.dp)
+                .testTag("unhide_song_button")
         ) {
-            Icon(
-                imageVector = Icons.Rounded.Restore,
-                contentDescription = "Unhide Song",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
+            Box(
+                modifier = Modifier.padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Unhide",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
         }
     }
 }
 
-/**
- * Clean Minimalist Empty State (No heavy circular background boxes)
- */
 @Composable
 private fun EmptyVaultState(
     icon: ImageVector,
@@ -663,19 +721,24 @@ private fun EmptyVaultState(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(horizontal = 32.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(44.dp),
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-            )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(30.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
 
             Spacer(modifier = Modifier.height(14.dp))
 
@@ -683,7 +746,7 @@ private fun EmptyVaultState(
                 text = title,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
+                    fontSize = 16.sp
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center
@@ -694,12 +757,11 @@ private fun EmptyVaultState(
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 20.dp)
+                textAlign = TextAlign.Center
             )
         }
     }

@@ -151,7 +151,7 @@ fun getNavigationTabTitle(effectiveTab: NavigationTab, activeSettingsSubPage: Se
             SettingsSubPage.AUDIO_FOLDERS -> "Folders"
             SettingsSubPage.WIDGETS -> "Widgets"
             SettingsSubPage.VIDEO_TO_M4A -> "Audio Extractor"
-            SettingsSubPage.SYSTEM_HIDDEN_FOLDERS -> "Hidden & System Folders"
+            SettingsSubPage.SYSTEM_HIDDEN_FOLDERS -> "Recordings & Hidden"
             SettingsSubPage.PERMISSIONS -> "Permissions"
             SettingsSubPage.ABOUT -> "About"
             SettingsSubPage.MANUAL_ALL,
@@ -499,6 +499,8 @@ fun RenderStandaloneTab(
                     onRestoreAllFolders = { viewModel.restoreAllExcludedFolders() },
                     onRestoreSong = { songId -> viewModel.restoreSong(songId) },
                     onRestoreAllSongs = { viewModel.restoreAllExcludedSongs() },
+                    onExcludeFolder = { folderPath -> viewModel.excludeFolder(folderPath) },
+                    onExcludeSong = { songId -> viewModel.excludeSong(songId) },
                     isLoading = uiState.isLoading,
                     onOpenSystemHiddenVault = {
                         viewModel.setSettingsSubPage(SettingsSubPage.SYSTEM_HIDDEN_FOLDERS)

@@ -179,10 +179,12 @@ interface AudioRepository {
     fun restoreAllExcludedDirectories()
     fun excludeSong(songId: Long)
     fun restoreSong(songId: Long)
+    fun restoreSongsBatch(songIds: Collection<Long>)
     fun restoreAllExcludedSongs()
 
     fun setMinDurationFilter(durationMs: Long)
     suspend fun deleteSongPhysical(song: Song): Boolean
+    suspend fun removeSongsFromCache(songIds: Collection<Long>)
     suspend fun moveSongPhysical(song: Song, targetFolderPath: String): Boolean
     suspend fun copySongPhysical(song: Song, targetFolderPath: String): Boolean
     suspend fun moveSongsBatch(songs: List<Song>, targetFolderPath: String): Pair<Int, Int>
@@ -1403,6 +1405,13 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
         persistExcludedSongs(updated)
     }
 
+    override fun restoreSongsBatch(songIds: Collection<Long>) {
+        if (songIds.isEmpty()) return
+        persistRestoredAutoSongs(_restoredAutoSongIds.value + songIds)
+        val updated = _excludedSongIds.value - songIds.toSet()
+        persistExcludedSongs(updated)
+    }
+
     override fun restoreAllExcludedSongs() {
         persistRestoredAutoSongs(_restoredAutoSongIds.value + _excludedSongIds.value)
         persistExcludedSongs(emptySet())
@@ -1414,6 +1423,14 @@ private val _gradientBlur = MutableStateFlow<Float>(0f)
 
     override suspend fun deleteSongPhysical(song: Song): Boolean =
         vaultRepository.deleteSongPhysical(song)
+
+    override suspend fun removeSongsFromCache(songIds: Collection<Long>) = withContext(Dispatchers.IO) {
+        songIds.forEach { id ->
+            try {
+                songDao.deleteSongById(id)
+            } catch (_: Exception) {}
+        }
+    }
 
     override suspend fun moveSongPhysical(song: Song, targetFolderPath: String): Boolean =
         vaultRepository.moveSongPhysical(song, targetFolderPath)

@@ -14,6 +14,7 @@ import com.kexora.soniclet.database.Song
 import com.kexora.soniclet.player.*
 import com.kexora.soniclet.utils.DuplicateDetectorEngine
 import com.kexora.soniclet.utils.DuplicateGroup
+import com.kexora.soniclet.utils.DuplicateScanMode
 import com.kexora.soniclet.utils.fuzzyMatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -700,8 +701,58 @@ internal class LibraryViewModel(
         vm.audioRepository.setIncludeSystemHiddenInLibrary(enabled)
     }
 
+    private fun syncVisibilityStateImmediately() {
+        val currentExcludedFolders = vm.audioRepository.excludedFolderPaths.value
+        val currentExcludedSongs = vm.audioRepository.excludedSongIds.value
+        val currentRestoredSongs = vm.audioRepository.restoredAutoSongIds.value
+
+        vm._uiState.update { state ->
+            val visibleSongs = state.allSongsList.filter { song ->
+                if (currentExcludedSongs.contains(song.id)) return@filter false
+                if (currentRestoredSongs.contains(song.id)) return@filter true
+                if (state.includeSystemHiddenInLibrary) {
+                    val cleanFolder = song.folderPath.trimEnd('/')
+                    val cleanFile = song.filePath.trimEnd('/')
+                    val isUserExplicitlyExcluded = currentExcludedFolders.any { excludedPath ->
+                        val cleanEx = excludedPath.trimEnd('/')
+                        cleanFolder == cleanEx || cleanFile == cleanEx
+                    }
+                    !isUserExplicitlyExcluded
+                } else {
+                    !isSongInExcludedFolder(song, currentExcludedFolders)
+                }
+            }
+            val newFiltered = filterAndSortSongs(
+                songs = visibleSongs,
+                query = state.searchQuery,
+                sortOption = state.sortOption,
+                sortAscending = state.sortAscending,
+                formatFilter = state.formatFilter,
+                durationCategoryFilter = state.durationCategoryFilter,
+                attributeFilter = state.attributeFilter,
+                favoriteSongIds = state.favoriteSongIds,
+                playCounts = state.playCounts
+            )
+            state.copy(
+                songList = visibleSongs,
+                filteredSongList = newFiltered,
+                excludedFolders = currentExcludedFolders,
+                excludedSongIds = currentExcludedSongs,
+                restoredAutoSongIds = currentRestoredSongs
+            )
+        }
+
+        scope.launch {
+            try {
+                val refreshedFolders = vm.audioRepository.getAllDiscoveredFolders()
+                vm._uiState.update { it.copy(discoveredFolders = refreshedFolders) }
+            } catch (_: Exception) {}
+        }
+    }
+
     fun excludeFolder(folderPath: String) {
         vm.audioRepository.excludeDirectory(folderPath)
+        syncVisibilityStateImmediately()
     }
 
     fun excludeJunkFolders() {
@@ -712,41 +763,54 @@ internal class LibraryViewModel(
                 vm.audioRepository.excludeDirectory(folder.path)
             }
         }
+        syncVisibilityStateImmediately()
     }
 
     fun restoreFolder(folderPath: String) {
         val cleanTarget = folderPath.trimEnd('/')
         vm.audioRepository.restoreDirectory(folderPath)
-        vm._uiState.value.allSongsList.forEach { song ->
-            val cleanFolder = song.folderPath.trimEnd('/')
-            if (cleanFolder == cleanTarget || cleanFolder.startsWith("$cleanTarget/")) {
-                vm.audioRepository.restoreSong(song.id)
+        val matchingSongIds = vm._uiState.value.allSongsList
+            .filter { song ->
+                val cleanFolder = song.folderPath.trimEnd('/')
+                val cleanFile = song.filePath.trimEnd('/')
+                cleanFolder == cleanTarget || cleanFolder.startsWith("$cleanTarget/") ||
+                    cleanFile == cleanTarget || cleanFile.startsWith("$cleanTarget/")
             }
-        }
+            .map { it.id }
+        vm.audioRepository.restoreSongsBatch(matchingSongIds)
+        syncVisibilityStateImmediately()
     }
 
     fun restoreAllExcludedFolders() {
         val excluded = vm._uiState.value.excludedFolders
         vm.audioRepository.restoreAllExcludedDirectories()
-        vm._uiState.value.allSongsList.forEach { song ->
-            if (isSongInExcludedFolder(song, excluded)) {
-                vm.audioRepository.restoreSong(song.id)
-            }
-        }
+        val matchingSongIds = vm._uiState.value.allSongsList
+            .filter { song -> isSongInExcludedFolder(song, excluded) }
+            .map { it.id }
+        vm.audioRepository.restoreSongsBatch(matchingSongIds)
+        syncVisibilityStateImmediately()
     }
 
-    fun excludeSong(songId: Long) = vm.audioRepository.excludeSong(songId)
-    fun restoreSong(songId: Long) = vm.audioRepository.restoreSong(songId)
+    fun excludeSong(songId: Long) {
+        vm.audioRepository.excludeSong(songId)
+        syncVisibilityStateImmediately()
+    }
+
+    fun restoreSong(songId: Long) {
+        vm.audioRepository.restoreSong(songId)
+        syncVisibilityStateImmediately()
+    }
 
     fun restoreAllExcludedSongs() {
-        vm._uiState.value.allSongsList.forEach { song ->
-            if (vm._uiState.value.excludedSongIds.contains(song.id) ||
-                isSongInExcludedFolder(song, vm._uiState.value.excludedFolders)
-            ) {
-                vm.audioRepository.restoreSong(song.id)
+        val matchingSongIds = vm._uiState.value.allSongsList
+            .filter { song ->
+                vm._uiState.value.excludedSongIds.contains(song.id) ||
+                    isSongInExcludedFolder(song, vm._uiState.value.excludedFolders)
             }
-        }
+            .map { it.id }
+        vm.audioRepository.restoreSongsBatch(matchingSongIds)
         vm.audioRepository.restoreAllExcludedSongs()
+        syncVisibilityStateImmediately()
     }
 
     fun setShowExcludedFoldersDialog(show: Boolean) {
@@ -917,12 +981,34 @@ internal class LibraryViewModel(
 
     fun setMinDurationFilter(durationMs: Long) = vm.audioRepository.setMinDurationFilter(durationMs)
 
-    fun analyzeDuplicateGroups(): List<DuplicateGroup> {
-        return DuplicateDetectorEngine.analyzeDuplicates(vm._uiState.value.allSongsList)
+    fun analyzeDuplicateGroups(
+        mode: DuplicateScanMode = DuplicateScanMode.SMART_MATCH
+    ): List<DuplicateGroup> {
+        return DuplicateDetectorEngine.analyzeDuplicates(vm._uiState.value.allSongsList, mode)
     }
 
     fun findDuplicateSongs(): List<List<Song>> {
         return analyzeDuplicateGroups().map { group -> group.tracks.map { it.song } }
+    }
+
+    fun onSongsExternallyDeleted(songIds: Collection<Long>) {
+        if (songIds.isEmpty()) return
+        val idSet = songIds.toSet()
+        scope.launch {
+            vm.audioRepository.removeSongsFromCache(idSet)
+            vm._uiState.update { state ->
+                val remainingAll = state.allSongsList.filterNot { it.id in idSet }
+                val remainingVisible = state.songList.filterNot { it.id in idSet }
+                val remainingFiltered = state.filteredSongList.filterNot { it.id in idSet }
+                state.copy(
+                    allSongsList = remainingAll,
+                    songList = remainingVisible,
+                    filteredSongList = remainingFiltered,
+                    selectedSongIds = state.selectedSongIds - idSet
+                )
+            }
+            loadAudioFiles(forceSync = true)
+        }
     }
 
     suspend fun deleteSongPhysical(song: Song): Boolean {
