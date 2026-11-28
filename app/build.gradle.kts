@@ -14,7 +14,7 @@ android {
         applicationId = "com.kexora.soniclet"
         minSdk = 24
         targetSdk = 36
-        versionCode = 12
+        versionCode = 13
         versionName = "3.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
