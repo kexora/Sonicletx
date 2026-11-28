@@ -2,42 +2,104 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
-    <ImageView android:id="@+id/widget_dynamic_bg" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" />
-    <RelativeLayout
-        android:id="@+id/widget_inner"
+    android:layout_height="match_parent"
+    android:padding="2dp">
+
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="8dp">
+        android:layout_height="match_parent">
+
+        <!-- Dynamic Rounded Background -->
         <ImageView
-            android:id="@+id/widget_art"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:layout_alignParentStart="true"
-            android:layout_centerVertical="true"
-            android:scaleType="centerCrop" />
-        <ImageButton
-            android:id="@+id/widget_btn_play"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:layout_alignParentEnd="true"
-            android:layout_centerVertical="true"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:scaleType="fitCenter" />
-        <TextView
-            android:id="@+id/widget_title"
+            android:id="@+id/widget_dynamic_bg"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_centerVertical="true"
-            android:layout_toStartOf="@id/widget_btn_play"
-            android:layout_toEndOf="@id/widget_art"
-            android:layout_marginStart="8dp"
-            android:layout_marginEnd="8dp"
-            android:ellipsize="marquee"
-            android:singleLine="true"
-            android:text="Title"
-            android:textColor="#FFFFFFFF"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-    </RelativeLayout>
+            android:layout_height="match_parent"
+            android:scaleType="fitXY"
+            android:contentDescription="@null" />
+
+        <LinearLayout
+            android:id="@+id/widget_inner"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/bg_widget_amoled_pill"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp">
+
+            <!-- 44dp Rounded Artwork -->
+            <ImageView
+                android:id="@+id/widget_art"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:scaleType="centerCrop"
+                android:contentDescription="Album artwork" />
+
+            <!-- 1-Line Bold Title + 1-Line Muted Artist -->
+            <LinearLayout
+                android:id="@+id/widget_info_container"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="10dp"
+                android:layout_marginEnd="6dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text="Soniclet Music"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_artist"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text="Tap to play"
+                    android:textColor="#B8B8C0"
+                    android:textSize="11.5sp" />
+
+            </LinearLayout>
+
+            <!-- Compact Transport Controls -->
+            <ImageView
+                android:id="@+id/widget_btn_prev"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:padding="5dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_previous"
+                android:contentDescription="Previous song" />
+
+            <ImageView
+                android:id="@+id/widget_btn_play"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_play"
+                android:contentDescription="Play or pause" />
+
+            <ImageView
+                android:id="@+id/widget_btn_next"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:padding="5dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_next"
+                android:contentDescription="Next song" />
+
+        </LinearLayout>
+    </FrameLayout>
 </FrameLayout>

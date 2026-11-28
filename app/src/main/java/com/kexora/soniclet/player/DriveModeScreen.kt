@@ -1,48 +1,112 @@
 package com.kexora.soniclet.player
 
 import android.app.Activity
+import android.content.res.Configuration
+import android.os.Build
 import android.view.WindowManager
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.kexora.soniclet.database.Song
+import com.kexora.soniclet.ui.components.common.FadingMarqueeText
 import com.kexora.soniclet.ui.components.player.FallbackAlbumArt
+import com.kexora.soniclet.utils.CompatBlurTransformation
+import com.kexora.soniclet.utils.SmartTitleCleaner
 import kotlinx.coroutines.delay
+import java.util.Locale
 
+private val DriveBackdropBase = Color(0xFF060807)
+
+/**
+ * Distraction-free modern Car Mode (Drive Mode) for Soniclet.
+ * Designed for instant glanceability, oversized touch targets, and zero visual clutter.
+ */
 @Composable
 fun DriveMode(
     uiState: MusicUiState,
@@ -52,11 +116,11 @@ fun DriveMode(
     val song = uiState.currentSong
     val isPlaying = uiState.isPlaying
     val configuration = LocalConfiguration.current
-    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
 
-    // Keep screen awake while in Drive Mode (critical for car drivers)
+    // Keep screen awake automatically while Drive Mode is active
     DisposableEffect(Unit) {
         val window = (context as? Activity)?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -65,50 +129,49 @@ fun DriveMode(
         }
     }
 
-    // Playback position state
     val currentPositionMs by viewModel.currentPosition.collectAsStateWithLifecycle()
-    val totalDuration = if (uiState.totalDuration > 0) uiState.totalDuration else (song?.duration ?: 0L)
+    val totalDuration = if (uiState.totalDuration > 0L) uiState.totalDuration else (song?.duration ?: 0L)
 
-    // Gesture feedback state (brief flash on swipe)
-    var gestureFeedbackText by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(gestureFeedbackText) {
-        if (gestureFeedbackText != null) {
-            delay(900)
-            gestureFeedbackText = null
+    var swipeFeedback by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(swipeFeedback) {
+        if (swipeFeedback != null) {
+            delay(850)
+            swipeFeedback = null
         }
     }
 
-    // Queue position
     val queueIndex = remember(song, uiState.activeQueue) {
         if (song != null) uiState.activeQueue.indexOfFirst { it.id == song.id } else -1
     }
-    val queueText = if (queueIndex != -1 && uiState.activeQueue.isNotEmpty()) {
-        "${queueIndex + 1} / ${uiState.activeQueue.size}"
-    } else {
-        ""
+    val queueCounter = remember(queueIndex, uiState.activeQueue.size) {
+        if (queueIndex >= 0 && uiState.activeQueue.isNotEmpty()) {
+            "${queueIndex + 1} / ${uiState.activeQueue.size}"
+        } else {
+            ""
+        }
     }
 
     val isFavorite = song != null && uiState.favoriteSongIds.contains(song.id)
-
-    // Drag detection for full-screen swipes
-    var dragAccumulator by remember { mutableStateOf(0f) }
+    var dragAccumulator by remember { mutableFloatStateOf(0f) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f))
-            .pointerInput(Unit) {
+            .background(DriveBackdropBase)
+            .pointerInput(song?.id) {
                 detectHorizontalDragGestures(
                     onDragStart = { dragAccumulator = 0f },
                     onDragEnd = {
-                        if (dragAccumulator > 70f) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            gestureFeedbackText = "⏮️ Previous Track"
-                            viewModel.playPrevious()
-                        } else if (dragAccumulator < -70f) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            gestureFeedbackText = "Next Track ⏭️"
-                            viewModel.playNext()
+                        if (song != null) {
+                            if (dragAccumulator > 75f) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                swipeFeedback = "Previous Song"
+                                viewModel.playPrevious()
+                            } else if (dragAccumulator < -75f) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                swipeFeedback = "Next Song"
+                                viewModel.playNext()
+                            }
                         }
                         dragAccumulator = 0f
                     },
@@ -117,926 +180,979 @@ fun DriveMode(
                     }
                 )
             }
+            .testTag("drive_mode_root")
     ) {
-        // Ambient backdrop glowing aura
-        Box(
-            modifier = Modifier
-                .size(320.dp)
-                .align(Alignment.Center)
-                .background(
-                    Brush.radialGradient(
-                        colors = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                            listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = if (isPlaying) 0.22f else 0.10f),
-                                Color(0xFFE91E63).copy(alpha = 0.08f),
-                                Color.Transparent
-                            )
-                        } else {
-                            listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = if (isPlaying) 0.18f else 0.08f),
-                                MaterialTheme.colorScheme.primary.copy(alpha = if (isPlaying) 0.10f else 0.04f),
-                                Color(0xFFE91E63).copy(alpha = 0.05f),
-                                Color(0xFFE91E63).copy(alpha = 0.01f),
-                                Color.Transparent
-                            )
-                        }
-                    )
-                )
-                .then(if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) Modifier.blur(80.dp) else Modifier)
-        )
+        // 1. Opaque Ambient Blurred Artwork Backdrop
+        DriveAmbientBackdrop(song = song, isPlaying = isPlaying)
 
+        // 2. Main Foreground Layout
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .systemBarsPadding()
+                .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
-            // Top Bar: Drive Mode status badge + Screen Keep-On indicator + Close button
-            DriveModeTopBar(
-                queueText = queueText,
-                isLandscape = isLandscape,
-                onClose = {
+            DriveTopBar(
+                queueCounter = queueCounter,
+                onExit = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onDismiss()
                 }
             )
 
-            // Main Content Area
             if (song != null) {
                 if (isLandscape) {
-                    DriveModeLandscapeContent(
+                    DriveLandscapeContent(
                         song = song,
                         isPlaying = isPlaying,
                         isFavorite = isFavorite,
+                        isShuffle = uiState.isShuffleEnabled,
                         currentPositionMs = currentPositionMs,
                         totalDuration = totalDuration,
-                        uiState = uiState,
-                        viewModel = viewModel,
-                        haptic = haptic
+                        onPlayPause = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.togglePlayPause()
+                        },
+                        onPrevious = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.playPrevious()
+                        },
+                        onNext = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.playNext()
+                        },
+                        onSeek = { targetMs ->
+                            viewModel.seekTo(targetMs)
+                        },
+                        onToggleFavorite = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.toggleFavorite(song.id)
+                        },
+                        onToggleShuffle = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.toggleShuffle()
+                        },
+                        modifier = Modifier.weight(1f)
                     )
                 } else {
-                    DriveModePortraitContent(
+                    DrivePortraitContent(
                         song = song,
                         isPlaying = isPlaying,
                         isFavorite = isFavorite,
+                        isShuffle = uiState.isShuffleEnabled,
                         currentPositionMs = currentPositionMs,
                         totalDuration = totalDuration,
-                        uiState = uiState,
-                        viewModel = viewModel,
-                        haptic = haptic
+                        onPlayPause = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.togglePlayPause()
+                        },
+                        onPrevious = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.playPrevious()
+                        },
+                        onNext = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.playNext()
+                        },
+                        onSeek = { targetMs ->
+                            viewModel.seekTo(targetMs)
+                        },
+                        onToggleFavorite = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.toggleFavorite(song.id)
+                        },
+                        onToggleShuffle = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.toggleShuffle()
+                        },
+                        modifier = Modifier.weight(1f)
                     )
                 }
             } else {
-                DriveModeEmptyState(onDismiss = onDismiss)
+                DriveEmptyState(
+                    onBack = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
-        // Animated Swipe Gesture Toast / Feedback overlay
+        // 3. Clean Swipe Feedback Pill
         AnimatedVisibility(
-            visible = gestureFeedbackText != null,
-            enter = fadeIn(tween(150)) + scaleIn(tween(150), initialScale = 0.85f),
-            exit = fadeOut(tween(250)) + scaleOut(tween(250), targetScale = 0.9f),
+            visible = swipeFeedback != null,
+            enter = fadeIn(tween(140)) + scaleIn(tween(140), initialScale = 0.88f),
+            exit = fadeOut(tween(220)) + scaleOut(tween(220), targetScale = 0.92f),
             modifier = Modifier
-                .align(Alignment.Center)
-                .padding(bottom = 120.dp)
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 64.dp)
         ) {
             Surface(
-                color = Color.Black.copy(alpha = 0.85f),
-                shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)),
-                shadowElevation = 12.dp
+                color = Color(0xFF0E1411).copy(alpha = 0.92f),
+                shape = CircleShape,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)),
+                shadowElevation = 10.dp
             ) {
-                Text(
-                    text = gestureFeedbackText ?: "",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    ),
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = if (swipeFeedback == "Previous Song") {
+                            Icons.Rounded.SkipPrevious
+                        } else {
+                            Icons.Rounded.SkipNext
+                        },
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = swipeFeedback.orEmpty(),
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        ),
+                        color = Color.White
+                    )
+                }
             }
         }
     }
 }
 
-/**
- * Top bar header with driving badge, screen keep-awake indicator, and big exit button.
- */
 @Composable
-private fun DriveModeTopBar(
-    queueText: String,
-    isLandscape: Boolean,
-    onClose: () -> Unit
+private fun DriveAmbientBackdrop(song: Song?, isPlaying: Boolean) {
+    val context = LocalContext.current
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val glowAlpha by animateFloatAsState(
+        targetValue = if (isPlaying) 0.22f else 0.10f,
+        animationSpec = tween(500),
+        label = "drive_glow_alpha"
+    )
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (song?.albumArtUri != null) {
+            val imageRequest = remember(song.albumArtUri, context) {
+                ImageRequest.Builder(context)
+                    .data(song.albumArtUri)
+                    .crossfade(450)
+                    .apply {
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                            transformations(CompatBlurTransformation(context, radius = 25, sampling = 6f))
+                        }
+                    }
+                    .build()
+            }
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            Modifier.blur(56.dp)
+                        } else {
+                            Modifier
+                        }
+                    )
+            )
+        }
+
+        // Rich dark contrast scrim (0.78f opacity) so controls remain ultra-legible day & night
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DriveBackdropBase.copy(alpha = 0.78f))
+        )
+
+        // Soft accent aura centered behind the artwork
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            primaryColor.copy(alpha = glowAlpha),
+                            Color.Transparent
+                        ),
+                        radius = 850f
+                    )
+                )
+        )
+    }
+}
+
+@Composable
+private fun DriveTopBar(
+    queueCounter: String,
+    onExit: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                horizontal = if (isLandscape) 28.dp else 20.dp,
-                vertical = if (isLandscape) 8.dp else 12.dp
-            ),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Drive mode badge
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+        // Left: Drive Mode status pill + queue counter
+        Surface(
+            shape = CircleShape,
+            color = Color.White.copy(alpha = 0.08f),
+            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.10f)),
+            modifier = Modifier.height(38.dp)
         ) {
-            Icon(
-                imageVector = Icons.Rounded.DirectionsCar,
-                contentDescription = null,
-                tint = Color(0xFFFFB300), // Amber warning car icon
-                modifier = Modifier.size(20.dp)
-            )
-            Text(
-                text = "DRIVE MODE",
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.5.sp
-                ),
-                color = Color.White
-            )
-            // Screen awake indicator
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF00E676)) // Neon green pulse dot
-            )
-            Text(
-                text = "Awake",
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                color = Color.White.copy(alpha = 0.7f)
-            )
-        }
-
-        // Queue Indicator & Big Close Button
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            if (queueText.isNotEmpty()) {
-                Surface(
-                    color = Color.White.copy(alpha = 0.07f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.DirectionsCar,
+                    contentDescription = "Drive Mode active",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = "Drive Mode",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.5.sp
+                    ),
+                    color = Color.White
+                )
+                if (queueCounter.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .size(4.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.35f))
+                    )
                     Text(
-                        text = "🎵 $queueText",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White.copy(alpha = 0.8f),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        text = queueCounter,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.5.sp,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        color = Color.White.copy(alpha = 0.72f)
                     )
                 }
             }
+        }
 
-            // Big, high-contrast close button (minimum 48dp touch target)
-            IconButton(
-                onClick = onClose,
-                modifier = Modifier
-                    .size(if (isLandscape) 44.dp else 52.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.12f))
+        // Right: Clean Exit pill button
+        Surface(
+            onClick = onExit,
+            shape = CircleShape,
+            color = Color.White.copy(alpha = 0.12f),
+            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.14f)),
+            modifier = Modifier
+                .height(38.dp)
+                .testTag("drive_mode_exit_button")
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Close,
                     contentDescription = "Exit Drive Mode",
                     tint = Color.White,
-                    modifier = Modifier.size(if (isLandscape) 26.dp else 30.dp)
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = "Exit",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.5.sp
+                    ),
+                    color = Color.White
                 )
             }
         }
     }
 }
 
-/**
- * Portrait Layout for Drive Mode
- */
 @Composable
-private fun DriveModePortraitContent(
+private fun DrivePortraitContent(
     song: Song,
     isPlaying: Boolean,
     isFavorite: Boolean,
+    isShuffle: Boolean,
     currentPositionMs: Long,
     totalDuration: Long,
-    uiState: MusicUiState,
-    viewModel: MusicViewModel,
-    haptic: androidx.compose.ui.hapticfeedback.HapticFeedback
+    onPlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onToggleFavorite: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val cleanTitle = remember(song.title, song.filePath) {
+        SmartTitleCleaner.cleanTitle(song.title, song.filePath)
+    }
+    val cleanArtist = remember(song.artist) {
+        if (SmartTitleCleaner.isPlaceholderArtist(song.artist)) "Unknown Artist" else song.artist.trim()
+    }
+
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // Large Album Art with Glow & Rounded corners
-        DriveAlbumArt(
+        // Centered Artwork
+        DriveArtworkCard(
             song = song,
-            size = 210.dp,
-            modifier = Modifier.padding(vertical = 8.dp)
+            isPlaying = isPlaying,
+            size = 196.dp
         )
 
-        // Track Title & Artist (Extra readable, High contrast, Marquee)
+        // 2-Line Track Info Only (Zero album/folder noise)
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp)
+                .padding(horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = song.title,
-                color = Color.White,
-                fontSize = 28.sp,
-                lineHeight = 34.sp,
-                fontWeight = FontWeight.Black,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                modifier = Modifier.basicMarquee()
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = song.artist,
-                color = Color(0xFFB0B3B8), // High readability soft gray
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            if (song.album.isNotBlank() && song.album != song.title) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = song.album,
-                    color = Color.White.copy(alpha = 0.45f),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Normal,
+            FadingMarqueeText(
+                text = cleanTitle,
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
+                    letterSpacing = (-0.3).sp
+                ),
+                color = Color.White,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = cleanArtist,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Medium
+                ),
+                color = Color.White.copy(alpha = 0.72f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        // Custom Smooth Pill Seekbar (Zero thumbs or dots)
+        DrivePillSeekbar(
+            currentPositionMs = currentPositionMs,
+            totalDurationMs = totalDuration,
+            onSeek = onSeek
+        )
+
+        // Oversized Primary Transport Controls
+        DrivePrimaryControls(
+            isPlaying = isPlaying,
+            onPrevious = onPrevious,
+            onPlayPause = onPlayPause,
+            onNext = onNext
+        )
+
+        // Secondary 2-Pill Quick Bar (Favorite + Shuffle)
+        DriveSecondaryPillBar(
+            isFavorite = isFavorite,
+            isShuffle = isShuffle,
+            onToggleFavorite = onToggleFavorite,
+            onToggleShuffle = onToggleShuffle
+        )
+
+        // Minimal Footer Hint
+        Text(
+            text = "Swipe anywhere to change song",
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.3.sp
+            ),
+            color = Color.White.copy(alpha = 0.42f),
+            modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+        )
+    }
+}
+
+@Composable
+private fun DriveLandscapeContent(
+    song: Song,
+    isPlaying: Boolean,
+    isFavorite: Boolean,
+    isShuffle: Boolean,
+    currentPositionMs: Long,
+    totalDuration: Long,
+    onPlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onToggleFavorite: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val cleanTitle = remember(song.title, song.filePath) {
+        SmartTitleCleaner.cleanTitle(song.title, song.filePath)
+    }
+    val cleanArtist = remember(song.artist) {
+        if (SmartTitleCleaner.isPlaceholderArtist(song.artist)) "Unknown Artist" else song.artist.trim()
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(28.dp)
+    ) {
+        // Left: Artwork + Swipe hint
+        Column(
+            modifier = Modifier
+                .weight(0.38f)
+                .fillMaxHeight(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            DriveArtworkCard(
+                song = song,
+                isPlaying = isPlaying,
+                size = 172.dp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "Swipe anywhere to change song",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                color = Color.White.copy(alpha = 0.42f),
+                textAlign = TextAlign.Center
+            )
+        }
+
+        // Right: Title, Artist, Seekbar, Primary + Secondary Controls
+        Column(
+            modifier = Modifier
+                .weight(0.62f)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.SpaceEvenly
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                FadingMarqueeText(
+                    text = cleanTitle,
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.3).sp
+                    ),
+                    color = Color.White,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = cleanArtist,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    color = Color.White.copy(alpha = 0.72f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-        }
 
-        // Seek Bar & Duration Display
-        DriveProgressBar(
-            currentPositionMs = currentPositionMs,
-            totalDuration = totalDuration,
-            onSeek = { targetMs ->
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                viewModel.seekTo(targetMs)
-            }
-        )
-
-        // Main Playback Controls: Previous, Play/Pause, Next
-        Row(
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp)
-        ) {
-            // Previous Button
-            Surface(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    viewModel.playPrevious()
-                },
-                modifier = Modifier.size(68.dp),
-                shape = CircleShape,
-                color = Color.White.copy(alpha = 0.12f),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.SkipPrevious,
-                        contentDescription = "Previous Track",
-                        tint = Color.White,
-                        modifier = Modifier.size(38.dp)
-                    )
-                }
-            }
-
-            // Central Play/Pause Button
-            Surface(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    viewModel.togglePlayPause()
-                },
-                modifier = Modifier
-                    .size(86.dp)
-                    .shadow(12.dp, CircleShape, spotColor = MaterialTheme.colorScheme.primary),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .then(
-                                if (!isPlaying) Modifier.padding(start = 4.dp) else Modifier
-                            )
-                    )
-                }
-            }
-
-            // Next Button
-            Surface(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    viewModel.playNext()
-                },
-                modifier = Modifier.size(68.dp),
-                shape = CircleShape,
-                color = Color.White.copy(alpha = 0.12f),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.SkipNext,
-                        contentDescription = "Next Track",
-                        tint = Color.White,
-                        modifier = Modifier.size(38.dp)
-                    )
-                }
-            }
-        }
-
-        // Secondary Driving Actions: Rewind 10s, Heart, Shuffle, Repeat, Forward 10s
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp)
-        ) {
-            // Rewind 10s
-            DriveActionButton(
-                icon = Icons.Rounded.Replay10,
-                contentDescription = "Rewind 10 Seconds",
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val target = (currentPositionMs - 10000L).coerceAtLeast(0L)
-                    viewModel.seekTo(target)
-                }
+            DrivePillSeekbar(
+                currentPositionMs = currentPositionMs,
+                totalDurationMs = totalDuration,
+                onSeek = onSeek
             )
 
-            // Shuffle Button
-            DriveActionButton(
-                icon = Icons.Rounded.Shuffle,
-                contentDescription = "Toggle Shuffle",
-                isActive = uiState.isShuffleEnabled,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    viewModel.toggleShuffle()
-                }
+            DrivePrimaryControls(
+                isPlaying = isPlaying,
+                onPrevious = onPrevious,
+                onPlayPause = onPlayPause,
+                onNext = onNext
             )
 
-            // Favorite Button (Big Heart, red when liked)
-            DriveFavoriteButton(
+            DriveSecondaryPillBar(
                 isFavorite = isFavorite,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    viewModel.toggleFavorite(song.id)
-                }
-            )
-
-            // Repeat Mode Button
-            DriveRepeatButton(
-                repeatMode = uiState.repeatMode,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    viewModel.toggleRepeatMode()
-                }
-            )
-
-            // Forward 10s
-            DriveActionButton(
-                icon = Icons.Rounded.Forward10,
-                contentDescription = "Forward 10 Seconds",
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val target = (currentPositionMs + 10000L).coerceAtMost(totalDuration)
-                    viewModel.seekTo(target)
-                }
-            )
-        }
-
-        // Gesture guide pill at bottom
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 16.dp)
-        ) {
-            Text(
-                text = "◄ SWIPE LEFT / RIGHT TO CHANGE TRACK ►",
-                color = Color.White.copy(alpha = 0.35f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.2.sp
+                isShuffle = isShuffle,
+                onToggleFavorite = onToggleFavorite,
+                onToggleShuffle = onToggleShuffle
             )
         }
     }
 }
 
-/**
- * Landscape Layout for Car Dashboard Mounts
- */
 @Composable
-private fun DriveModeLandscapeContent(
+private fun DriveArtworkCard(
     song: Song,
     isPlaying: Boolean,
-    isFavorite: Boolean,
-    currentPositionMs: Long,
-    totalDuration: Long,
-    uiState: MusicUiState,
-    viewModel: MusicViewModel,
-    haptic: androidx.compose.ui.hapticfeedback.HapticFeedback
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 32.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        // Left Column: Album Art + Song Title & Artist + Progress Bar
-        Column(
-            modifier = Modifier
-                .weight(1.1f)
-                .fillMaxHeight()
-                .padding(end = 28.dp),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                DriveAlbumArt(song = song, size = 120.dp)
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = song.title,
-                        color = Color.White,
-                        fontSize = 26.sp,
-                        lineHeight = 32.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1,
-                        modifier = Modifier.basicMarquee()
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Text(
-                        text = song.artist,
-                        color = Color(0xFFB0B3B8),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    if (song.album.isNotBlank()) {
-                        Text(
-                            text = song.album,
-                            color = Color.White.copy(alpha = 0.4f),
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Seek progress bar
-            DriveProgressBar(
-                currentPositionMs = currentPositionMs,
-                totalDuration = totalDuration,
-                onSeek = { targetMs ->
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    viewModel.seekTo(targetMs)
-                }
-            )
-
-            // Swipe hint
-            Text(
-                text = "◄ SWIPE SCREEN FOR NEXT/PREV ►",
-                color = Color.White.copy(alpha = 0.3f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-        }
-
-        // Right Column: Giant Controls & Driving Actions
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Main Playback Controls
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Previous Button
-                Surface(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.playPrevious()
-                    },
-                    modifier = Modifier.size(64.dp),
-                    shape = CircleShape,
-                    color = Color.White.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.SkipPrevious,
-                            contentDescription = "Previous Track",
-                            tint = Color.White,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
-                }
-
-                // Play / Pause Button
-                Surface(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.togglePlayPause()
-                    },
-                    modifier = Modifier
-                        .size(80.dp)
-                        .shadow(10.dp, CircleShape, spotColor = MaterialTheme.colorScheme.primary),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier
-                                .size(44.dp)
-                                .then(
-                                    if (!isPlaying) Modifier.padding(start = 3.dp) else Modifier
-                                )
-                        )
-                    }
-                }
-
-                // Next Button
-                Surface(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.playNext()
-                    },
-                    modifier = Modifier.size(64.dp),
-                    shape = CircleShape,
-                    color = Color.White.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.SkipNext,
-                            contentDescription = "Next Track",
-                            tint = Color.White,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Action Row: Rewind, Heart, Shuffle, Repeat, Forward
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                DriveActionButton(
-                    icon = Icons.Rounded.Replay10,
-                    contentDescription = "Rewind 10 Seconds",
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        val target = (currentPositionMs - 10000L).coerceAtLeast(0L)
-                        viewModel.seekTo(target)
-                    }
-                )
-
-                DriveActionButton(
-                    icon = Icons.Rounded.Shuffle,
-                    contentDescription = "Shuffle",
-                    isActive = uiState.isShuffleEnabled,
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.toggleShuffle()
-                    }
-                )
-
-                DriveFavoriteButton(
-                    isFavorite = isFavorite,
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.toggleFavorite(song.id)
-                    }
-                )
-
-                DriveRepeatButton(
-                    repeatMode = uiState.repeatMode,
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.toggleRepeatMode()
-                    }
-                )
-
-                DriveActionButton(
-                    icon = Icons.Rounded.Forward10,
-                    contentDescription = "Forward 10 Seconds",
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        val target = (currentPositionMs + 10000L).coerceAtMost(totalDuration)
-                        viewModel.seekTo(target)
-                    }
-                )
-            }
-        }
-    }
-}
-
-/**
- * Album Art with Fallback App Logo
- */
-@Composable
-private fun DriveAlbumArt(
-    song: Song,
-    size: androidx.compose.ui.unit.Dp,
-    modifier: Modifier = Modifier
+    size: Dp
 ) {
     val context = LocalContext.current
-    Surface(
-        modifier = modifier
+    val artScale by animateFloatAsState(
+        targetValue = if (isPlaying) 1.0f else 0.94f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "drive_art_scale"
+    )
+
+    val shape = RoundedCornerShape(24.dp)
+
+    Box(
+        modifier = Modifier
             .size(size)
-            .shadow(24.dp, RoundedCornerShape(24.dp), spotColor = Color.Black),
-        shape = RoundedCornerShape(24.dp),
-        color = Color(0xFF1E2028),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
-    ) {
-        if (song.albumArtUri != null) {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(song.albumArtUri)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = "Album Artwork for ${song.title}",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                loading = {
-                    FallbackAlbumArt(title = song.title, modifier = Modifier.fillMaxSize())
-                },
-                error = {
-                    FallbackAlbumArt(title = song.title, modifier = Modifier.fillMaxSize())
-                }
+            .scale(artScale)
+            .shadow(
+                elevation = if (isPlaying) 24.dp else 10.dp,
+                shape = shape,
+                ambientColor = Color.Black,
+                spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
             )
-        } else {
-            FallbackAlbumArt(title = song.title, modifier = Modifier.fillMaxSize())
-        }
+            .clip(shape)
+            .background(Color(0xFF141917))
+            .border(1.dp, Color.White.copy(alpha = 0.12f), shape),
+        contentAlignment = Alignment.Center
+    ) {
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(song.albumArtUri)
+                .crossfade(300)
+                .build(),
+            contentDescription = "Album cover for ${song.title}",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+            error = { FallbackAlbumArt() },
+            loading = { FallbackAlbumArt() }
+        )
     }
 }
 
-/**
- * High visibility seek bar and timestamp row for driving mode
- */
 @Composable
-private fun DriveProgressBar(
+private fun DrivePillSeekbar(
     currentPositionMs: Long,
-    totalDuration: Long,
+    totalDurationMs: Long,
     onSeek: (Long) -> Unit
 ) {
-    val progress = if (totalDuration > 0) {
-        (currentPositionMs.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
-    } else 0f
+    var isDragging by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableFloatStateOf(0f) }
+    var barWidthPx by remember { mutableFloatStateOf(1f) }
+
+    val playbackFraction = remember(currentPositionMs, totalDurationMs) {
+        if (totalDurationMs > 0L) {
+            (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+    }
+    val displayFraction = if (isDragging) dragFraction else playbackFraction
+    val displayPositionMs = if (isDragging) {
+        (dragFraction * totalDurationMs).toLong().coerceIn(0L, totalDurationMs)
+    } else {
+        currentPositionMs.coerceIn(0L, totalDurationMs.coerceAtLeast(0L))
+    }
+
+    val activeColor = MaterialTheme.colorScheme.primary
+    val trackColor = Color.White.copy(alpha = 0.14f)
 
     Column(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("drive_mode_seekbar")
     ) {
-        // High visibility slider with broad touch surface
-        Slider(
-            value = progress,
-            onValueChange = { newProgress ->
-                val newMs = (newProgress * totalDuration).toLong()
-                onSeek(newMs)
-            },
-            colors = SliderDefaults.colors(
-                thumbColor = Color.White,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = Color.White.copy(alpha = 0.18f)
-            ),
+        // Generous 36.dp vertical touch hitbox around the 10.dp sleek pill bar
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(38.dp)
-        )
+                .height(36.dp)
+                .onSizeChanged { barWidthPx = it.width.toFloat().coerceAtLeast(1f) }
+                .pointerInput(totalDurationMs) {
+                    detectTapGestures { offset ->
+                        if (totalDurationMs > 0L) {
+                            val frac = (offset.x / barWidthPx).coerceIn(0f, 1f)
+                            onSeek((frac * totalDurationMs).toLong())
+                        }
+                    }
+                }
+                .pointerInput(totalDurationMs) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { offset ->
+                            if (totalDurationMs > 0L) {
+                                isDragging = true
+                                dragFraction = (offset.x / barWidthPx).coerceIn(0f, 1f)
+                            }
+                        },
+                        onDragEnd = {
+                            if (isDragging && totalDurationMs > 0L) {
+                                onSeek((dragFraction * totalDurationMs).toLong())
+                            }
+                            isDragging = false
+                        },
+                        onDragCancel = { isDragging = false },
+                        onHorizontalDrag = { change, _ ->
+                            if (totalDurationMs > 0L) {
+                                change.consume()
+                                dragFraction = (change.position.x / barWidthPx).coerceIn(0f, 1f)
+                            }
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(10.dp)
+            ) {
+                val radius = CornerRadius(size.height / 2f, size.height / 2f)
+                // Inactive track
+                drawRoundRect(
+                    color = trackColor,
+                    topLeft = Offset.Zero,
+                    size = size,
+                    cornerRadius = radius
+                )
+                val fillWidth = (size.width * displayFraction).coerceAtLeast(
+                    if (displayFraction > 0f) size.height else 0f
+                )
+                if (fillWidth > 0f) {
+                    // Subtle accent glow
+                    drawRoundRect(
+                        color = activeColor.copy(alpha = 0.28f),
+                        topLeft = Offset(0f, -2.dp.toPx()),
+                        size = Size(fillWidth, size.height + 4.dp.toPx()),
+                        cornerRadius = CornerRadius((size.height + 4.dp.toPx()) / 2f)
+                    )
+                    // Active progress fill
+                    drawRoundRect(
+                        color = activeColor,
+                        topLeft = Offset.Zero,
+                        size = Size(fillWidth, size.height),
+                        cornerRadius = radius
+                    )
+                }
+            }
+        }
 
+        // Clean tabular timestamps
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = formatDuration(currentPositionMs),
-                color = Color.White.copy(alpha = 0.85f),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
+                text = formatDriveTime(displayPositionMs),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    fontFeatureSettings = "tnum"
+                ),
+                color = Color.White.copy(alpha = 0.78f)
             )
             Text(
-                text = formatDuration(totalDuration),
-                color = Color.White.copy(alpha = 0.5f),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+                text = formatDriveTime(totalDurationMs),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    fontFeatureSettings = "tnum"
+                ),
+                color = Color.White.copy(alpha = 0.58f)
             )
         }
     }
 }
 
-/**
- * Quick Action Button with large touch target and active highlight
- */
 @Composable
-private fun DriveActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
-    isActive: Boolean = false,
-    onClick: () -> Unit
+private fun DrivePrimaryControls(
+    isPlaying: Boolean,
+    onPrevious: () -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .size(54.dp)
-            .clip(CircleShape)
-            .background(
-                if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                else Color.White.copy(alpha = 0.08f)
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(bounded = true, radius = 28.dp),
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
+    val playCornerRadius by animateDpAsState(
+        targetValue = if (isPlaying) 28.dp else 46.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "drive_play_corner"
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = if (isActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.85f),
-            modifier = Modifier.size(28.dp)
-        )
+        // 76.dp Circular Previous
+        Surface(
+            onClick = onPrevious,
+            shape = CircleShape,
+            color = Color.White.copy(alpha = 0.10f),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+            modifier = Modifier
+                .size(76.dp)
+                .testTag("drive_mode_prev_button")
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Rounded.SkipPrevious,
+                    contentDescription = "Previous song",
+                    tint = Color.White,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        }
+
+        // Giant 92.dp Morphing Play/Pause
+        Surface(
+            onClick = onPlayPause,
+            shape = RoundedCornerShape(playCornerRadius),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .size(92.dp)
+                .shadow(
+                    elevation = 16.dp,
+                    shape = RoundedCornerShape(playCornerRadius),
+                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                )
+                .testTag("drive_mode_play_pause_button")
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .then(if (!isPlaying) Modifier.padding(start = 3.dp) else Modifier)
+                )
+            }
+        }
+
+        // 76.dp Circular Next
+        Surface(
+            onClick = onNext,
+            shape = CircleShape,
+            color = Color.White.copy(alpha = 0.10f),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+            modifier = Modifier
+                .size(76.dp)
+                .testTag("drive_mode_next_button")
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Rounded.SkipNext,
+                    contentDescription = "Next song",
+                    tint = Color.White,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        }
     }
 }
 
-/**
- * Heart Favorite Button with pulsing red heart state
- */
 @Composable
-private fun DriveFavoriteButton(
+private fun DriveSecondaryPillBar(
     isFavorite: Boolean,
-    onClick: () -> Unit
+    isShuffle: Boolean,
+    onToggleFavorite: () -> Unit,
+    onToggleShuffle: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .size(58.dp)
-            .clip(CircleShape)
-            .background(
-                if (isFavorite) Color(0xFFFF1744).copy(alpha = 0.22f)
-                else Color.White.copy(alpha = 0.08f)
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(bounded = true, radius = 30.dp),
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
+    val primary = MaterialTheme.colorScheme.primary
+
+    val favBg by animateColorAsState(
+        targetValue = if (isFavorite) primary.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f),
+        animationSpec = tween(200),
+        label = "drive_fav_bg"
+    )
+    val favBorder by animateColorAsState(
+        targetValue = if (isFavorite) primary.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.10f),
+        animationSpec = tween(200),
+        label = "drive_fav_border"
+    )
+    val favScale by animateFloatAsState(
+        targetValue = if (isFavorite) 1.12f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "drive_fav_scale"
+    )
+
+    val shuffleBg by animateColorAsState(
+        targetValue = if (isShuffle) primary.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f),
+        animationSpec = tween(200),
+        label = "drive_shuffle_bg"
+    )
+    val shuffleBorder by animateColorAsState(
+        targetValue = if (isShuffle) primary.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.10f),
+        animationSpec = tween(200),
+        label = "drive_shuffle_border"
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Icon(
-            imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-            contentDescription = if (isFavorite) "Remove from Favorites" else "Add to Favorites",
-            tint = if (isFavorite) Color(0xFFFF1744) else Color.White.copy(alpha = 0.85f),
-            modifier = Modifier.size(30.dp)
-        )
+        // Favorite Pill
+        Surface(
+            onClick = onToggleFavorite,
+            shape = CircleShape,
+            color = favBg,
+            border = BorderStroke(1.dp, favBorder),
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp)
+                .testTag("drive_mode_favorite_button")
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+                    tint = if (isFavorite) primary else Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier
+                        .size(20.dp)
+                        .scale(favScale)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isFavorite) "Liked" else "Favorite",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    ),
+                    color = if (isFavorite) primary else Color.White.copy(alpha = 0.90f)
+                )
+            }
+        }
+
+        // Shuffle Pill
+        Surface(
+            onClick = onToggleShuffle,
+            shape = CircleShape,
+            color = shuffleBg,
+            border = BorderStroke(1.dp, shuffleBorder),
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp)
+                .testTag("drive_mode_shuffle_button")
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Shuffle,
+                    contentDescription = if (isShuffle) "Turn off shuffle" else "Turn on shuffle",
+                    tint = if (isShuffle) primary else Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isShuffle) "Shuffle On" else "Shuffle",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    ),
+                    color = if (isShuffle) primary else Color.White.copy(alpha = 0.90f)
+                )
+            }
+        }
     }
 }
 
-/**
- * Repeat Button supporting OFF, ALL, and ONE modes
- */
 @Composable
-private fun DriveRepeatButton(
-    repeatMode: RepeatMode,
-    onClick: () -> Unit
+private fun DriveEmptyState(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val isActive = repeatMode != RepeatMode.OFF
-    val icon = if (repeatMode == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat
-
-    Box(
-        modifier = Modifier
-            .size(54.dp)
-            .clip(CircleShape)
-            .background(
-                if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                else Color.White.copy(alpha = 0.08f)
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(bounded = true, radius = 28.dp),
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = "Repeat Mode: $repeatMode",
-            tint = if (isActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.85f),
-            modifier = Modifier.size(28.dp)
-        )
-    }
-}
-
-/**
- * Empty state when no track is currently playing
- */
-@Composable
-private fun DriveModeEmptyState(onDismiss: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            imageVector = Icons.Rounded.MusicOff,
-            contentDescription = null,
-            tint = Color.Gray,
-            modifier = Modifier.size(72.dp)
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
+        Box(
+            modifier = Modifier
+                .size(84.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(40.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(20.dp))
         Text(
-            text = "NO MUSIC PLAYING",
+            text = "No song playing",
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp
+            ),
             color = Color.White,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 2.sp
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Select a song from your library to start driving",
-            color = Color.Gray,
-            fontSize = 16.sp,
             textAlign = TextAlign.Center
         )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Pick a song from your library to use Drive Mode",
+            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
+            color = Color.White.copy(alpha = 0.68f),
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(28.dp))
         Button(
-            onClick = onDismiss,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.height(52.dp)
+            onClick = onBack,
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ),
+            modifier = Modifier
+                .height(48.dp)
+                .testTag("drive_mode_back_to_songs")
         ) {
             Text(
-                text = "Back to Library",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
+                text = "Back to Songs",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                ),
+                modifier = Modifier.padding(horizontal = 16.dp)
             )
         }
     }
 }
 
+private fun formatDriveTime(ms: Long): String {
+    val safeMs = ms.coerceAtLeast(0L)
+    val totalSeconds = safeMs / 1000L
+    val hours = totalSeconds / 3600L
+    val minutes = (totalSeconds % 3600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+    }
+}

@@ -2,141 +2,137 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
-    
-    <ImageView
-        android:id="@+id/widget_dynamic_bg"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="centerCrop" />
-
-    <!-- Original Layout Below -->
-<LinearLayout
-    android:id="@+id/widget_inner"
-    android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_widget_amoled_rounded"
-    android:gravity="center"
-    android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="2dp">
 
-    <!-- Vinyl Disc Graphic with Album Center -->
-    <RelativeLayout
-        android:id="@+id/widget_vinyl_outer"
-        android:layout_width="120dp"
-        android:layout_height="120dp"
-        android:layout_marginTop="4dp"
-        android:background="@drawable/bg_widget_circle">
-
-        <!-- Disc Spindle Center Image -->
-        <ImageView
-            android:id="@+id/widget_art"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:layout_centerInParent="true"
-            android:scaleType="centerCrop"
-            android:src="@drawable/ic_soniclet_app_logo"
-            android:contentDescription="@string/app_name" />
-    </RelativeLayout>
-
-    <!-- Track Information -->
-    <LinearLayout
-        android:id="@+id/widget_info_container"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:gravity="center"
-        android:orientation="vertical">
+        android:layout_height="match_parent">
 
-        <TextView
-            android:id="@+id/widget_title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:ellipsize="end"
+        <!-- Dynamic Rounded Background -->
+        <ImageView
+            android:id="@+id/widget_dynamic_bg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitXY"
+            android:contentDescription="@null" />
+
+        <LinearLayout
+            android:id="@+id/widget_inner"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/bg_widget_amoled_rounded"
             android:gravity="center"
-            android:maxLines="1"
-            android:text="Vinyl Hi-Fi Player"
-            android:textColor="#FFFFFFFF"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            android:orientation="vertical"
+            android:padding="12dp">
 
-        <TextView
-            android:id="@+id/widget_artist"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="1dp"
-            android:ellipsize="end"
-            android:gravity="center"
-            android:maxLines="1"
-            android:text="Soniclet"
-            android:textColor="#B3FFFFFF"
-            android:textSize="11sp" />
-    </LinearLayout>
+            <!-- Circular Vinyl Disc + Center Label -->
+            <FrameLayout
+                android:id="@+id/widget_vinyl_outer"
+                android:layout_width="86dp"
+                android:layout_height="86dp"
+                android:background="@drawable/bg_widget_circle"
+                android:padding="12dp">
 
-    <!-- Controls Row -->
-    <LinearLayout
-        android:id="@+id/widget_controls_container"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+                <ImageView
+                    android:id="@+id/widget_art"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    android:contentDescription="Vinyl artwork" />
 
-        <ImageButton
-            android:id="@+id/widget_btn_fav"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:padding="7dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_favorite_border"
-            android:contentDescription="Favorite" />
+                <!-- Center Spindle Hole -->
+                <View
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_widget_circle" />
 
-        <ImageButton
-            android:id="@+id/widget_btn_prev"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
-            android:layout_marginStart="4dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:padding="8dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_previous"
-            android:contentDescription="Previous" />
+            </FrameLayout>
 
-        <ImageButton
-            android:id="@+id/widget_btn_play"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:layout_marginStart="8dp"
-            android:layout_marginEnd="8dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:padding="10dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_play"
-            android:contentDescription="Play or Pause" />
+            <!-- Song Title & Artist -->
+            <TextView
+                android:id="@+id/widget_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:singleLine="true"
+                android:text="Soniclet Vinyl"
+                android:textColor="#FFFFFF"
+                android:textSize="13.5sp"
+                android:textStyle="bold" />
 
-        <ImageButton
-            android:id="@+id/widget_btn_next"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
-            android:layout_marginEnd="4dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:padding="8dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_next"
-            android:contentDescription="Next" />
+            <TextView
+                android:id="@+id/widget_artist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:singleLine="true"
+                android:text="Tap to play"
+                android:textColor="#B8B8C0"
+                android:textSize="11.5sp" />
 
-        <ImageButton
-            android:id="@+id/widget_btn_shuffle"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:padding="7dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_shuffle_off"
-            android:contentDescription="Shuffle" />
-    </LinearLayout>
+            <!-- Tactile Controls -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center"
+                android:orientation="horizontal">
 
-</LinearLayout>
+                <ImageView
+                    android:id="@+id/widget_btn_shuffle"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:padding="4dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_shuffle_off"
+                    android:contentDescription="Shuffle" />
 
+                <ImageView
+                    android:id="@+id/widget_btn_prev"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="6dp"
+                    android:padding="5dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_previous"
+                    android:contentDescription="Previous song" />
+
+                <ImageView
+                    android:id="@+id/widget_btn_play"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_play"
+                    android:contentDescription="Play or pause" />
+
+                <ImageView
+                    android:id="@+id/widget_btn_next"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="5dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_next"
+                    android:contentDescription="Next song" />
+
+                <ImageView
+                    android:id="@+id/widget_btn_fav"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:padding="4dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_favorite_border"
+                    android:contentDescription="Favorite" />
+
+            </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
 </FrameLayout>

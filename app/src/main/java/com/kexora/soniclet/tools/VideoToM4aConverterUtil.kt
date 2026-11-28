@@ -1,11 +1,10 @@
 package com.kexora.soniclet.tools
 
-import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
@@ -25,40 +24,50 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
-import kotlinx.coroutines.*
+import com.kexora.soniclet.utils.SmartTitleCleaner
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jaudiotagger.audio.AudioFileIO
 import org.jaudiotagger.tag.FieldKey
 import org.jaudiotagger.tag.images.ArtworkFactory
+import org.jaudiotagger.tag.reference.PictureTypes
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
-import java.util.*
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Ultra-Optimized, Dual-Engine Video to M4A (AAC) Converter.
+ * Crash-Free, Scoped-Storage-Safe Video-to-Audio (M4A/AAC) Extractor Engine.
  *
- * Supports two high-performance modes:
- * 1. DIRECT_LOSSLESS: Instant Hardware-Direct Demuxing (0% CPU / 0 transcoding lag, copies in 1 second, handles any file size up to 10GB+)
- * 2. CUSTOM_QUALITY: Hardware-Accelerated Bitrate & Size Control (128k, 192k, 256k, 320k) with precision trimming
- *
- * Smooth, lightweight, memory-safe for both Low-End and High-End Android devices.
+ * Dual-engine pipeline:
+ * 1. Direct Stream Copy (AAC source + Original Quality, including trimmed ranges)
+ * 2. Universal Hardware MediaCodec Decode -> AAC-LC Encode -> MediaMuxer
+ *    (honors exact 128k–320k bitrates and decodes Opus/Vorbis/MP3/PCM/etc.)
+ *    with automatic Media3 Transformer fallback.
  */
 object VideoToM4aConverterUtil {
 
     private const val TAG = "VideoToM4aConverter"
+    private const val MAX_THUMBNAIL_DIM = 512
 
     enum class ConversionMode(val label: String, val description: String) {
-        DIRECT_LOSSLESS("Fast Lossless (Original Audio)", "Instant 1-second copy, 0 quality loss, lowest battery usage"),
-        CUSTOM_QUALITY("Custom Bitrate & Size", "Select exact bitrate (128k - 320k) and audio trimming")
+        DIRECT_LOSSLESS("Original Quality", "Fastest — keeps the video's exact sound"),
+        CUSTOM_QUALITY("Choose Quality", "Pick your preferred sound clarity and file size")
     }
 
     enum class AudioBitrate(val kbps: Int, val label: String, val desc: String, val approxMbPerMin: Float) {
-        BITRATE_128(128, "128 kbps (Compact)", "Smallest file size, great for low-end / saving storage", 0.95f),
-        BITRATE_192(192, "192 kbps (Standard)", "Balanced everyday acoustic clarity", 1.44f),
-        BITRATE_256(256, "256 kbps (High Quality)", "Studio standard fidelity & punchy dynamics", 1.92f),
-        BITRATE_320(320, "320 kbps (Studio HD)", "Maximum AAC resolution & ultra-wide acoustics", 2.40f)
+        BITRATE_128(128, "128 kbps", "Small file size", 0.95f),
+        BITRATE_192(192, "192 kbps", "Clear everyday sound", 1.44f),
+        BITRATE_256(256, "256 kbps", "High clarity", 1.92f),
+        BITRATE_320(320, "320 kbps", "Highest quality", 2.40f)
     }
 
     data class VideoMetadata(
@@ -82,8 +91,8 @@ object VideoToM4aConverterUtil {
     data class ConversionConfig(
         val inputUri: Uri,
         val outputTitle: String,
-        val outputArtist: String = "Soniclet Video Extract",
-        val outputAlbum: String = "Video Audio",
+        val outputArtist: String = "Soniclet",
+        val outputAlbum: String = "Saved from Video",
         val mode: ConversionMode = ConversionMode.DIRECT_LOSSLESS,
         val bitrate: AudioBitrate = AudioBitrate.BITRATE_256,
         val startMs: Long = 0L,
@@ -104,8 +113,8 @@ object VideoToM4aConverterUtil {
     )
 
     /**
-     * Inspects a video and extracts lightweight metadata and a downscaled thumbnail.
-     * Memory-safe for low-RAM devices (scales thumbnail to max 360px).
+     * Inspects a picked video URI safely on Dispatchers.IO without broad storage permissions.
+     * Downscales thumbnail frames to <= 512px to prevent OOM on 4K videos.
      */
     suspend fun inspectVideo(context: Context, videoUri: Uri): VideoMetadata? = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
@@ -122,57 +131,56 @@ object VideoToM4aConverterUtil {
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Could not query OpenableColumns: ${e.message}")
+            Log.w(TAG, "Could not query video file name: ${e.message}")
         }
 
         try {
             retriever.setDataSource(context, videoUri)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to setDataSource for video: ${e.message}")
+            Log.e(TAG, "Failed to open video URI: ${e.message}")
             try { retriever.release() } catch (_: Exception) {}
             return@withContext null
         }
 
-        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-        val durationMs = durationStr?.toLongOrNull() ?: 0L
-
+        val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
         val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
         val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
         val metaTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+        val hasAudioMeta = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
 
-        // Capture memory-efficient downscaled frame preview
-        val frameTimeUs = if (durationMs > 2000) 1_000_000L else 500_000L
-        val rawThumbnail: Bitmap? = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1 && width > 0 && height > 0) {
-                val targetW = 360
-                val targetH = (360f * (height.toFloat() / width.toFloat())).toInt().coerceIn(180, 480)
+        // Memory-safe downscaled thumbnail frame (<= 512px on all API levels)
+        val frameTimeUs = when {
+            durationMs > 4000L -> 1_500_000L
+            durationMs > 1000L -> 500_000L
+            else -> 0L
+        }
+        val safeThumbnail: Bitmap? = try {
+            val rawFrame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1 && width > 0 && height > 0) {
+                val scale = minOf(1f, MAX_THUMBNAIL_DIM.toFloat() / maxOf(width, height).toFloat())
+                val targetW = (width * scale).toInt().coerceIn(120, MAX_THUMBNAIL_DIM)
+                val targetH = (height * scale).toInt().coerceIn(120, MAX_THUMBNAIL_DIM)
                 retriever.getScaledFrameAtTime(frameTimeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, targetW, targetH)
             } else {
                 retriever.getFrameAtTime(frameTimeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
             }
-        } catch (e: Exception) {
+            downscaleBitmapSafely(rawFrame, MAX_THUMBNAIL_DIM)
+        } catch (_: Exception) {
             null
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
         }
 
-        // Clean default title
-        val cleanTitle = if (!metaTitle.isNullOrBlank()) {
-            metaTitle
-        } else {
-            fileName.substringBeforeLast(".")
-                .replace("_", " ")
-                .replace("-", " ")
-                .trim()
-        }
+        val rawTitle = if (!metaTitle.isNullOrBlank()) metaTitle else fileName.substringBeforeLast(".")
+        val cleanTitle = SmartTitleCleaner.cleanTitle(rawTitle, fileName).ifBlank { "Saved Audio" }
 
-        // Inspect audio track details via MediaExtractor
         var hasAudio = false
         var audioMime: String? = null
         var sampleRate = 44100
         var channelCount = 2
         var isAacDirectCompatible = false
 
+        val extractor = MediaExtractor()
         try {
-            val extractor = MediaExtractor()
             extractor.setDataSource(context, videoUri, null)
             for (i in 0 until extractor.trackCount) {
                 val format = extractor.getTrackFormat(i)
@@ -187,7 +195,6 @@ object VideoToM4aConverterUtil {
                         channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
                     }
                     if (mime.equals(MediaFormat.MIMETYPE_AUDIO_AAC, ignoreCase = true) ||
-                        mime.contains("aac", ignoreCase = true) ||
                         mime.contains("mp4a", ignoreCase = true)
                     ) {
                         isAacDirectCompatible = true
@@ -195,14 +202,12 @@ object VideoToM4aConverterUtil {
                     break
                 }
             }
-            extractor.release()
         } catch (e: Exception) {
-            hasAudio = true
+            Log.w(TAG, "MediaExtractor audio inspection warning: ${e.message}")
+            hasAudio = hasAudioMeta.equals("yes", ignoreCase = true)
+        } finally {
+            try { extractor.release() } catch (_: Exception) {}
         }
-
-        try {
-            retriever.release()
-        } catch (_: Exception) {}
 
         VideoMetadata(
             uri = videoUri,
@@ -219,14 +224,30 @@ object VideoToM4aConverterUtil {
             audioSampleRate = sampleRate,
             audioChannels = channelCount,
             isAacDirectCompatible = isAacDirectCompatible,
-            thumbnail = rawThumbnail
+            thumbnail = safeThumbnail
         )
     }
 
+    private fun downscaleBitmapSafely(bitmap: Bitmap?, maxDim: Int): Bitmap? {
+        if (bitmap == null || bitmap.isRecycled) return null
+        val largest = maxOf(bitmap.width, bitmap.height)
+        if (largest <= maxDim) return bitmap
+        return try {
+            val scale = maxDim.toFloat() / largest.toFloat()
+            val targetW = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val targetH = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+            if (scaled != bitmap) {
+                bitmap.recycle()
+            }
+            scaled
+        } catch (_: Exception) {
+            bitmap
+        }
+    }
+
     /**
-     * Converts a video into an M4A audio file.
-     * Uses Fast Demuxing for instant zero-lag lossless conversion if compatible and untrimmed,
-     * or Media3 Transformer for bitrate control and trimming.
+     * Extracts audio from any picked video URI to M4A (AAC) and saves it to Music/Soniclet.
      */
     fun convert(
         context: Context,
@@ -237,67 +258,147 @@ object VideoToM4aConverterUtil {
         onError: (String) -> Unit
     ): TransformerJob {
         val tempDir = File(context.cacheDir, "m4a_exports").apply { mkdirs() }
-        val safeFileName = config.outputTitle.replace(Regex("[^a-zA-Z0-9._ -]"), "_").trim().ifEmpty { "audio_track" }
+        val safeFileName = config.outputTitle
+            .replace(Regex("[^a-zA-Z0-9._ -]"), "_")
+            .trim()
+            .ifEmpty { "Soniclet_Audio" }
         val tempOutputFile = File(tempDir, "${safeFileName}_${System.currentTimeMillis()}.m4a")
-
-        val isTrimming = config.startMs > 0L || (config.endMs > 0L && config.endMs > config.startMs)
-        val canUseDirectDemux = config.mode == ConversionMode.DIRECT_LOSSLESS && isAacDirectCompatible && !isTrimming
 
         val parentJob = Job()
         val scope = CoroutineScope(Dispatchers.Main + parentJob)
+        val cancelled = AtomicBoolean(false)
+        var fallbackTransformerJob: TransformerJob? = null
 
-        if (canUseDirectDemux) {
-            // ENGINE 1: INSTANT NATIVE HARDWARE DEMUXING (Under 1 second, zero CPU/RAM bottleneck)
-            scope.launch(Dispatchers.IO) {
-                try {
-                    val success = directDemuxAudio(context, config.inputUri, tempOutputFile) { progress ->
-                        scope.launch(Dispatchers.Main) { onProgress(progress) }
+        val useDirectCopy = config.mode == ConversionMode.DIRECT_LOSSLESS && isAacDirectCompatible
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                // Verify video actually has an audio track first
+                if (!videoHasAudioTrack(context, config.inputUri)) {
+                    withContext(Dispatchers.Main) {
+                        onError("This video has no sound")
                     }
+                    return@launch
+                }
 
-                    if (success) {
-                        embedMetadataAndCover(tempOutputFile, config)
-                        val savedResult = saveToDeviceMusicStorage(
-                            context,
-                            tempOutputFile,
-                            config,
-                            "Original Lossless"
-                        )
-                        withContext(Dispatchers.Main) {
-                            onProgress(100)
-                            onSuccess(savedResult)
-                        }
+                val extracted = if (useDirectCopy) {
+                    directDemuxAudio(
+                        context = context,
+                        inputUri = config.inputUri,
+                        outputFile = tempOutputFile,
+                        startMs = config.startMs,
+                        endMs = config.endMs,
+                        cancelled = cancelled
+                    ) { p ->
+                        if (!cancelled.get()) scope.launch(Dispatchers.Main) { onProgress(p) }
+                    }
+                } else {
+                    transcodeAudioToAac(
+                        context = context,
+                        inputUri = config.inputUri,
+                        outputFile = tempOutputFile,
+                        targetBitrateBps = config.bitrate.kbps * 1000,
+                        startMs = config.startMs,
+                        endMs = config.endMs,
+                        cancelled = cancelled
+                    ) { p ->
+                        if (!cancelled.get()) scope.launch(Dispatchers.Main) { onProgress(p) }
+                    }
+                }
+
+                if (cancelled.get()) {
+                    safeDelete(tempOutputFile)
+                    return@launch
+                }
+
+                if (extracted && tempOutputFile.exists() && tempOutputFile.length() > 0L) {
+                    embedMetadataAndCover(tempOutputFile, config)
+                    val qualityLabel = if (config.mode == ConversionMode.DIRECT_LOSSLESS) {
+                        "Original Quality"
                     } else {
-                        // Fallback to Media3 Transformer if direct demux encountered unexpected stream layout
-                        startTransformerConversion(context, config, tempOutputFile, scope, onProgress, onSuccess, onError)
+                        "${config.bitrate.kbps} kbps"
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Direct demux error, falling back to Transformer: ${e.message}")
-                    startTransformerConversion(context, config, tempOutputFile, scope, onProgress, onSuccess, onError)
+                    val savedResult = saveToDeviceMusicStorage(context, tempOutputFile, config, qualityLabel)
+                    safeDelete(tempOutputFile)
+                    withContext(Dispatchers.Main) {
+                        onProgress(100)
+                        onSuccess(savedResult)
+                    }
+                } else {
+                    // Fallback to Media3 Transformer for unusual containers/codecs
+                    safeDelete(tempOutputFile)
+                    withContext(Dispatchers.Main) {
+                        if (!cancelled.get()) {
+                            fallbackTransformerJob = startTransformerConversion(
+                                context = context,
+                                config = config,
+                                tempOutputFile = tempOutputFile,
+                                coroutineScope = scope,
+                                onProgress = onProgress,
+                                onSuccess = onSuccess,
+                                onError = onError
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Primary audio extraction failed, trying fallback: ${e.message}")
+                safeDelete(tempOutputFile)
+                if (!cancelled.get()) {
+                    withContext(Dispatchers.Main) {
+                        fallbackTransformerJob = startTransformerConversion(
+                            context = context,
+                            config = config,
+                            tempOutputFile = tempOutputFile,
+                            coroutineScope = scope,
+                            onProgress = onProgress,
+                            onSuccess = onSuccess,
+                            onError = onError
+                        )
+                    }
                 }
             }
+        }
 
-            return TransformerJob {
-                parentJob.cancel()
-                if (tempOutputFile.exists()) tempOutputFile.delete()
+        return TransformerJob {
+            cancelled.set(true)
+            fallbackTransformerJob?.cancelJob()
+            parentJob.cancel()
+            safeDelete(tempOutputFile)
+        }
+    }
+
+    private fun videoHasAudioTrack(context: Context, uri: Uri): Boolean {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(context, uri, null)
+            for (i in 0 until extractor.trackCount) {
+                val mime = extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: ""
+                if (mime.startsWith("audio/")) return true
             }
-        } else {
-            // ENGINE 2: MEDIA3 TRANSFORMER WITH BITRATE & TRIMMING CONTROL
-            return startTransformerConversion(context, config, tempOutputFile, scope, onProgress, onSuccess, onError)
+            false
+        } catch (_: Exception) {
+            false
+        } finally {
+            try { extractor.release() } catch (_: Exception) {}
         }
     }
 
     /**
-     * Direct MediaExtractor -> MediaMuxer stream copier.
-     * Takes ~0.5 - 1.5 seconds regardless of video size (100MB to 5GB).
+     * ENGINE 1: Fast direct stream copy via MediaExtractor -> MediaMuxer (supports trimming).
      */
     private fun directDemuxAudio(
         context: Context,
         inputUri: Uri,
         outputFile: File,
+        startMs: Long,
+        endMs: Long,
+        cancelled: AtomicBoolean,
         onProgress: (Int) -> Unit
     ): Boolean {
         val extractor = MediaExtractor()
         var muxer: MediaMuxer? = null
+        var muxerStarted = false
 
         try {
             extractor.setDataSource(context, inputUri, null)
@@ -314,70 +415,389 @@ object VideoToM4aConverterUtil {
                 }
             }
 
-            if (audioTrackIndex == -1 || audioFormat == null) {
-                extractor.release()
-                return false
-            }
+            if (audioTrackIndex == -1 || audioFormat == null) return false
 
             extractor.selectTrack(audioTrackIndex)
 
-            val durationUs = if (audioFormat.containsKey(MediaFormat.KEY_DURATION)) {
+            val trackDurationUs = if (audioFormat.containsKey(MediaFormat.KEY_DURATION)) {
                 audioFormat.getLong(MediaFormat.KEY_DURATION)
             } else {
-                1L
+                0L
+            }
+
+            val startUs = (startMs.coerceAtLeast(0L)) * 1000L
+            val endUs = if (endMs > startMs) endMs * 1000L else Long.MAX_VALUE
+            val expectedDurationUs = if (endUs != Long.MAX_VALUE) {
+                (endUs - startUs).coerceAtLeast(1L)
+            } else {
+                (trackDurationUs - startUs).coerceAtLeast(1L)
+            }
+
+            if (startUs > 0L) {
+                extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
             }
 
             muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             val muxerAudioTrackIndex = muxer.addTrack(audioFormat)
             muxer.start()
+            muxerStarted = true
 
             val maxBufferSize = if (audioFormat.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
-                audioFormat.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE).coerceIn(65536, 1048576)
+                audioFormat.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE).coerceIn(65_536, 1_048_576)
             } else {
-                262144 // 256 KB buffer (very safe for low-end phones)
+                262_144
             }
 
             val buffer = ByteBuffer.allocateDirect(maxBufferSize)
             val bufferInfo = MediaCodec.BufferInfo()
-
+            var basePtsUs = -1L
+            var lastPtsUs = -1L
+            var wroteAnySample = false
             var lastReportTime = 0L
 
-            while (true) {
+            while (!cancelled.get()) {
                 bufferInfo.offset = 0
                 bufferInfo.size = extractor.readSampleData(buffer, 0)
+                if (bufferInfo.size < 0) break
 
-                if (bufferInfo.size < 0) {
-                    break
+                val sampleTimeUs = extractor.sampleTime
+                if (sampleTimeUs < 0L) break
+                if (sampleTimeUs > endUs) break
+
+                if (sampleTimeUs >= startUs) {
+                    if (basePtsUs < 0L) basePtsUs = sampleTimeUs
+                    var rebasedPts = (sampleTimeUs - basePtsUs).coerceAtLeast(0L)
+                    if (rebasedPts <= lastPtsUs) {
+                        rebasedPts = lastPtsUs + 1L
+                    }
+                    lastPtsUs = rebasedPts
+                    bufferInfo.presentationTimeUs = rebasedPts
+                    bufferInfo.flags = extractor.sampleFlags
+
+                    muxer.writeSampleData(muxerAudioTrackIndex, buffer, bufferInfo)
+                    wroteAnySample = true
+
+                    val now = System.currentTimeMillis()
+                    if (now - lastReportTime > 70L) {
+                        lastReportTime = now
+                        val prog = ((rebasedPts.toFloat() / expectedDurationUs.toFloat()) * 94f)
+                            .toInt()
+                            .coerceIn(1, 94)
+                        onProgress(prog)
+                    }
                 }
-
-                bufferInfo.presentationTimeUs = extractor.sampleTime
-                bufferInfo.flags = extractor.sampleFlags
-
-                muxer.writeSampleData(muxerAudioTrackIndex, buffer, bufferInfo)
                 extractor.advance()
-
-                val now = System.currentTimeMillis()
-                if (now - lastReportTime > 80 && durationUs > 0) {
-                    lastReportTime = now
-                    val prog = ((bufferInfo.presentationTimeUs.toFloat() / durationUs.toFloat()) * 95f).toInt().coerceIn(0, 95)
-                    onProgress(prog)
-                }
             }
 
-            muxer.stop()
-            muxer.release()
-            extractor.release()
-            return true
+            return wroteAnySample && !cancelled.get()
         } catch (e: Exception) {
             Log.e(TAG, "Direct demux failed: ${e.message}")
+            return false
+        } finally {
+            try { if (muxerStarted) muxer?.stop() } catch (_: Exception) {}
             try { muxer?.release() } catch (_: Exception) {}
             try { extractor.release() } catch (_: Exception) {}
-            return false
         }
     }
 
     /**
-     * Transformer Engine for Bitrate transcoding and Precision Audio Trimming.
+     * ENGINE 2: Universal Hardware MediaCodec Decode -> AAC-LC Encode -> MediaMuxer.
+     * Supports any audio codec (Opus, Vorbis, MP3, FLAC, PCM, AAC) + exact target bitrate + trimming.
+     */
+    private fun transcodeAudioToAac(
+        context: Context,
+        inputUri: Uri,
+        outputFile: File,
+        targetBitrateBps: Int,
+        startMs: Long,
+        endMs: Long,
+        cancelled: AtomicBoolean,
+        onProgress: (Int) -> Unit
+    ): Boolean {
+        val extractor = MediaExtractor()
+        var decoder: MediaCodec? = null
+        var encoder: MediaCodec? = null
+        var muxer: MediaMuxer? = null
+        var muxerStarted = false
+
+        try {
+            extractor.setDataSource(context, inputUri, null)
+            var audioTrackIndex = -1
+            var inputFormat: MediaFormat? = null
+
+            for (i in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(i)
+                val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
+                if (mime.startsWith("audio/")) {
+                    audioTrackIndex = i
+                    inputFormat = format
+                    break
+                }
+            }
+
+            if (audioTrackIndex == -1 || inputFormat == null) return false
+
+            val inputMime = inputFormat.getString(MediaFormat.KEY_MIME) ?: return false
+            val sampleRate = if (inputFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE).coerceIn(8000, 48000)
+            } else {
+                44100
+            }
+            val channelCount = if (inputFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceIn(1, 2)
+            } else {
+                2
+            }
+            val trackDurationUs = if (inputFormat.containsKey(MediaFormat.KEY_DURATION)) {
+                inputFormat.getLong(MediaFormat.KEY_DURATION)
+            } else {
+                0L
+            }
+
+            val startUs = startMs.coerceAtLeast(0L) * 1000L
+            val endUs = if (endMs > startMs) endMs * 1000L else Long.MAX_VALUE
+            val expectedDurationUs = if (endUs != Long.MAX_VALUE) {
+                (endUs - startUs).coerceAtLeast(1L)
+            } else {
+                (trackDurationUs - startUs).coerceAtLeast(1L)
+            }
+
+            extractor.selectTrack(audioTrackIndex)
+            if (startUs > 0L) {
+                extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+            }
+
+            // Configure decoder
+            decoder = MediaCodec.createDecoderByType(inputMime).apply {
+                configure(inputFormat, null, null, 0)
+                start()
+            }
+
+            // Configure AAC-LC encoder
+            val encoderFormat = MediaFormat.createAudioFormat(
+                MediaFormat.MIMETYPE_AUDIO_AAC,
+                sampleRate,
+                channelCount
+            ).apply {
+                setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+                setInteger(MediaFormat.KEY_BIT_RATE, targetBitrateBps.coerceIn(64_000, 320_000))
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 262_144)
+            }
+            encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC).apply {
+                configure(encoderFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                start()
+            }
+
+            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            var muxerTrackIndex = -1
+
+            val decInfo = MediaCodec.BufferInfo()
+            val encInfo = MediaCodec.BufferInfo()
+            var extractorDone = false
+            var decoderDone = false
+            var encoderDone = false
+            var basePcmPtsUs = -1L
+            var lastEncPtsUs = -1L
+            var lastReportTime = 0L
+            var wroteAnyFrame = false
+
+            val timeoutUs = 10_000L
+
+            while (!encoderDone && !cancelled.get()) {
+                // 1. Feed extractor -> decoder
+                if (!extractorDone) {
+                    val inIdx = decoder.dequeueInputBuffer(timeoutUs)
+                    if (inIdx >= 0) {
+                        val inBuf = decoder.getInputBuffer(inIdx)
+                        if (inBuf != null) {
+                            val sampleSize = extractor.readSampleData(inBuf, 0)
+                            val sampleTimeUs = extractor.sampleTime
+                            if (sampleSize < 0 || sampleTimeUs > endUs) {
+                                decoder.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                extractorDone = true
+                            } else {
+                                decoder.queueInputBuffer(inIdx, 0, sampleSize, sampleTimeUs, extractor.sampleFlags)
+                                extractor.advance()
+                            }
+                        }
+                    }
+                }
+
+                // 2. Drain decoder -> feed PCM to encoder
+                if (!decoderDone) {
+                    val outIdx = decoder.dequeueOutputBuffer(decInfo, timeoutUs)
+                    if (outIdx >= 0) {
+                        val decBuf = decoder.getOutputBuffer(outIdx)
+                        val isEos = (decInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
+
+                        if (decBuf != null && decInfo.size > 0 && decInfo.presentationTimeUs >= startUs && decInfo.presentationTimeUs <= endUs) {
+                            decBuf.position(decInfo.offset)
+                            decBuf.limit(decInfo.offset + decInfo.size)
+                            if (basePcmPtsUs < 0L) basePcmPtsUs = decInfo.presentationTimeUs
+                            var remaining = decInfo.size
+                            var offsetShift = 0
+                            val baseFramePts = (decInfo.presentationTimeUs - basePcmPtsUs).coerceAtLeast(0L)
+
+                            while (remaining > 0 && !cancelled.get()) {
+                                val encInIdx = encoder.dequeueInputBuffer(timeoutUs)
+                                if (encInIdx >= 0) {
+                                    val encInBuf = encoder.getInputBuffer(encInIdx)
+                                    if (encInBuf != null) {
+                                        encInBuf.clear()
+                                        val chunk = minOf(remaining, encInBuf.capacity())
+                                        val slice = ByteArray(chunk)
+                                        decBuf.position(decInfo.offset + offsetShift)
+                                        decBuf.get(slice, 0, chunk)
+                                        encInBuf.put(slice)
+                                        val chunkPts = baseFramePts + ((offsetShift.toLong() * 1_000_000L) / (sampleRate * channelCount * 2L).coerceAtLeast(1L))
+                                        encoder.queueInputBuffer(encInIdx, 0, chunk, chunkPts, 0)
+                                        remaining -= chunk
+                                        offsetShift += chunk
+                                    }
+                                } else {
+                                    // Drain encoder to avoid deadlock
+                                    val drained = drainEncoderStep(
+                                        encoder, encInfo, muxer, muxerTrackIndex, muxerStarted, lastEncPtsUs, expectedDurationUs, lastReportTime, onProgress
+                                    )
+                                    muxerTrackIndex = drained.muxerTrackIndex
+                                    muxerStarted = drained.muxerStarted
+                                    lastEncPtsUs = drained.lastPtsUs
+                                    lastReportTime = drained.lastReportTime
+                                    if (drained.wroteFrame) wroteAnyFrame = true
+                                    if (drained.eosReached) encoderDone = true
+                                }
+                            }
+                        }
+
+                        decoder.releaseOutputBuffer(outIdx, false)
+
+                        if (isEos) {
+                            decoderDone = true
+                            // Signal EOS to encoder
+                            while (!cancelled.get()) {
+                                val encInIdx = encoder.dequeueInputBuffer(timeoutUs)
+                                if (encInIdx >= 0) {
+                                    encoder.queueInputBuffer(encInIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                    break
+                                } else {
+                                    val drained = drainEncoderStep(
+                                        encoder, encInfo, muxer, muxerTrackIndex, muxerStarted, lastEncPtsUs, expectedDurationUs, lastReportTime, onProgress
+                                    )
+                                    muxerTrackIndex = drained.muxerTrackIndex
+                                    muxerStarted = drained.muxerStarted
+                                    lastEncPtsUs = drained.lastPtsUs
+                                    lastReportTime = drained.lastReportTime
+                                    if (drained.wroteFrame) wroteAnyFrame = true
+                                    if (drained.eosReached) {
+                                        encoderDone = true
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Drain encoder -> muxer
+                val drained = drainEncoderStep(
+                    encoder, encInfo, muxer, muxerTrackIndex, muxerStarted, lastEncPtsUs, expectedDurationUs, lastReportTime, onProgress
+                )
+                muxerTrackIndex = drained.muxerTrackIndex
+                muxerStarted = drained.muxerStarted
+                lastEncPtsUs = drained.lastPtsUs
+                lastReportTime = drained.lastReportTime
+                if (drained.wroteFrame) wroteAnyFrame = true
+                if (drained.eosReached) encoderDone = true
+            }
+
+            return wroteAnyFrame && !cancelled.get()
+        } catch (e: Exception) {
+            Log.w(TAG, "Hardware AAC transcode failed: ${e.message}")
+            return false
+        } finally {
+            try { decoder?.stop() } catch (_: Exception) {}
+            try { decoder?.release() } catch (_: Exception) {}
+            try { encoder?.stop() } catch (_: Exception) {}
+            try { encoder?.release() } catch (_: Exception) {}
+            try { if (muxerStarted) muxer?.stop() } catch (_: Exception) {}
+            try { muxer?.release() } catch (_: Exception) {}
+            try { extractor.release() } catch (_: Exception) {}
+        }
+    }
+
+    private data class DrainResult(
+        val muxerTrackIndex: Int,
+        val muxerStarted: Boolean,
+        val lastPtsUs: Long,
+        val lastReportTime: Long,
+        val wroteFrame: Boolean,
+        val eosReached: Boolean
+    )
+
+    private fun drainEncoderStep(
+        encoder: MediaCodec,
+        encInfo: MediaCodec.BufferInfo,
+        muxer: MediaMuxer,
+        initialTrackIndex: Int,
+        initialMuxerStarted: Boolean,
+        initialLastPtsUs: Long,
+        expectedDurationUs: Long,
+        initialLastReportTime: Long,
+        onProgress: (Int) -> Unit
+    ): DrainResult {
+        var trackIndex = initialTrackIndex
+        var started = initialMuxerStarted
+        var lastPtsUs = initialLastPtsUs
+        var lastReportTime = initialLastReportTime
+        var wroteFrame = false
+        var eosReached = false
+
+        while (true) {
+            val outIdx = encoder.dequeueOutputBuffer(encInfo, 0L)
+            if (outIdx == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                break
+            } else if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                if (!started) {
+                    trackIndex = muxer.addTrack(encoder.outputFormat)
+                    muxer.start()
+                    started = true
+                }
+            } else if (outIdx >= 0) {
+                val encBuf = encoder.getOutputBuffer(outIdx)
+                val isConfig = (encInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0
+                val isEos = (encInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
+
+                if (!isConfig && encBuf != null && encInfo.size > 0 && started && trackIndex >= 0) {
+                    encBuf.position(encInfo.offset)
+                    encBuf.limit(encInfo.offset + encInfo.size)
+                    var pts = encInfo.presentationTimeUs.coerceAtLeast(0L)
+                    if (pts <= lastPtsUs) pts = lastPtsUs + 1L
+                    lastPtsUs = pts
+                    encInfo.presentationTimeUs = pts
+                    muxer.writeSampleData(trackIndex, encBuf, encInfo)
+                    wroteFrame = true
+
+                    val now = System.currentTimeMillis()
+                    if (now - lastReportTime > 80L) {
+                        lastReportTime = now
+                        val prog = ((pts.toFloat() / expectedDurationUs.toFloat()) * 94f)
+                            .toInt()
+                            .coerceIn(1, 94)
+                        onProgress(prog)
+                    }
+                }
+                encoder.releaseOutputBuffer(outIdx, false)
+                if (isEos) {
+                    eosReached = true
+                    break
+                }
+            }
+        }
+        return DrainResult(trackIndex, started, lastPtsUs, lastReportTime, wroteFrame, eosReached)
+    }
+
+    /**
+     * Fallback Engine: Media3 Transformer for edge-case container formats.
      */
     private fun startTransformerConversion(
         context: Context,
@@ -390,8 +810,7 @@ object VideoToM4aConverterUtil {
     ): TransformerJob {
         val mediaItemBuilder = MediaItem.Builder().setUri(config.inputUri)
 
-        // Precision Trimming configuration
-        if (config.startMs > 0 || (config.endMs > config.startMs)) {
+        if (config.startMs > 0L || (config.endMs > config.startMs)) {
             val clippingBuilder = MediaItem.ClippingConfiguration.Builder()
                 .setStartPositionMs(config.startMs)
             if (config.endMs > config.startMs) {
@@ -411,21 +830,25 @@ object VideoToM4aConverterUtil {
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                     pollingJob?.cancel()
-                    onProgress(100)
-
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
                             embedMetadataAndCover(tempOutputFile, config)
-                            val bitrateLabel = if (config.mode == ConversionMode.CUSTOM_QUALITY) "${config.bitrate.kbps} kbps" else "M4A AAC"
+                            val bitrateLabel = if (config.mode == ConversionMode.CUSTOM_QUALITY) {
+                                "${config.bitrate.kbps} kbps"
+                            } else {
+                                "Original Quality"
+                            }
                             val savedResult = saveToDeviceMusicStorage(context, tempOutputFile, config, bitrateLabel)
-
+                            safeDelete(tempOutputFile)
                             withContext(Dispatchers.Main) {
+                                onProgress(100)
                                 onSuccess(savedResult)
                             }
                         } catch (e: Exception) {
-                            Log.e(TAG, "Error finalizing M4A export: ${e.message}", e)
+                            Log.e(TAG, "Error finalizing exported audio: ${e.message}", e)
+                            safeDelete(tempOutputFile)
                             withContext(Dispatchers.Main) {
-                                onError("Failed to save audio file: ${e.message}")
+                                onError("Couldn't save the audio file. Please try again.")
                             }
                         }
                     }
@@ -437,9 +860,10 @@ object VideoToM4aConverterUtil {
                     exportException: ExportException
                 ) {
                     pollingJob?.cancel()
-                    Log.e(TAG, "Transformer error: ${exportException.message}", exportException)
+                    safeDelete(tempOutputFile)
+                    Log.e(TAG, "Transformer export error: ${exportException.message}", exportException)
                     coroutineScope.launch(Dispatchers.Main) {
-                        onError("Conversion failed: ${exportException.message ?: "Audio export error"}")
+                        onError("Couldn't save audio from this video. Please try another video.")
                     }
                 }
             })
@@ -454,27 +878,22 @@ object VideoToM4aConverterUtil {
                     delay(120)
                     val progressState = transformer.getProgress(progressHolder)
                     if (progressState == Transformer.PROGRESS_STATE_AVAILABLE) {
-                        val currentProgress = progressHolder.progress.coerceIn(0, 99)
-                        withContext(Dispatchers.Main) {
-                            onProgress(currentProgress)
-                        }
+                        val currentProgress = progressHolder.progress.coerceIn(1, 96)
+                        withContext(Dispatchers.Main) { onProgress(currentProgress) }
                     }
                 }
             }
         } catch (e: Exception) {
             pollingJob?.cancel()
-            Log.e(TAG, "Failed to start transformer: ${e.message}", e)
-            onError("Could not start conversion: ${e.message}")
+            safeDelete(tempOutputFile)
+            Log.e(TAG, "Failed to start fallback transformer: ${e.message}", e)
+            onError("Couldn't read this video file. Please try another one.")
         }
 
         return TransformerJob {
             pollingJob?.cancel()
-            try {
-                transformer.cancel()
-                if (tempOutputFile.exists()) tempOutputFile.delete()
-            } catch (e: Exception) {
-                Log.w(TAG, "Error cancelling transformer: ${e.message}")
-            }
+            try { transformer.cancel() } catch (_: Exception) {}
+            safeDelete(tempOutputFile)
         }
     }
 
@@ -482,32 +901,30 @@ object VideoToM4aConverterUtil {
         try {
             val audioFile = AudioFileIO.read(file)
             val tag = audioFile.tagOrCreateAndSetDefault
-            tag.setField(FieldKey.TITLE, config.outputTitle)
-            tag.setField(FieldKey.ARTIST, config.outputArtist)
-            tag.setField(FieldKey.ALBUM, config.outputAlbum)
+            tag.setField(FieldKey.TITLE, config.outputTitle.ifBlank { "Saved Audio" })
+            tag.setField(FieldKey.ARTIST, config.outputArtist.ifBlank { "Soniclet" })
+            tag.setField(FieldKey.ALBUM, config.outputAlbum.ifBlank { "Saved from Video" })
 
-            if (config.embedThumbnail && config.thumbnailBitmap != null) {
+            val thumb = config.thumbnailBitmap
+            if (config.embedThumbnail && thumb != null && !thumb.isRecycled) {
                 try {
                     val stream = ByteArrayOutputStream()
-                    // Compress thumbnail safely to JPEG for ID3 embed
-                    config.thumbnailBitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
-                    val byteArray = stream.toByteArray()
-
-                    val artwork = ArtworkFactory.getNew()
-                    artwork.binaryData = byteArray
-                    artwork.mimeType = "image/jpeg"
-                    artwork.pictureType = org.jaudiotagger.tag.reference.PictureTypes.DEFAULT_ID
-
+                    thumb.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                    val artwork = ArtworkFactory.getNew().apply {
+                        binaryData = stream.toByteArray()
+                        mimeType = "image/jpeg"
+                        pictureType = PictureTypes.DEFAULT_ID
+                    }
                     tag.deleteArtworkField()
                     tag.setField(artwork)
                 } catch (e: Exception) {
-                    Log.w(TAG, "Could not embed cover art: ${e.message}")
+                    Log.w(TAG, "Non-fatal cover art embed warning: ${e.message}")
                 }
             }
 
             audioFile.commit()
         } catch (e: Exception) {
-            Log.w(TAG, "Non-fatal jaudiotagger tag write: ${e.message}")
+            Log.w(TAG, "Non-fatal tag write warning: ${e.message}")
         }
     }
 
@@ -517,13 +934,18 @@ object VideoToM4aConverterUtil {
         config: ConversionConfig,
         bitrateInfo: String
     ): ConversionResult {
-        val safeName = config.outputTitle.replace(Regex("[^a-zA-Z0-9._ -]"), "_").trim().ifEmpty { "audio_track" }
+        val safeName = config.outputTitle
+            .replace(Regex("[^a-zA-Z0-9._ -]"), "_")
+            .trim()
+            .ifEmpty { "Soniclet_Audio" }
         val displayName = "$safeName.m4a"
+        val fileBytes = tempFile.length()
 
         var finalFile: File? = null
         var finalUri: Uri? = null
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Scoped Storage safe save into Music/Soniclet
             try {
                 val values = ContentValues().apply {
                     put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
@@ -538,61 +960,49 @@ object VideoToM4aConverterUtil {
                 val insertedUri = context.contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
                 if (insertedUri != null) {
                     context.contentResolver.openOutputStream(insertedUri)?.use { out ->
-                        FileInputStream(tempFile).use { input ->
-                            input.copyTo(out)
-                        }
+                        FileInputStream(tempFile).use { input -> input.copyTo(out) }
                     }
-
                     values.clear()
                     values.put(MediaStore.Audio.Media.IS_PENDING, 0)
                     context.contentResolver.update(insertedUri, values, null, null)
-
                     finalUri = insertedUri
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "MediaStore insert error: ${e.message}")
+                Log.w(TAG, "MediaStore insert failed: ${e.message}")
+            }
+        } else {
+            // Legacy Android 9 and below: save to public Music/Soniclet & scan
+            try {
+                @Suppress("DEPRECATION")
+                val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+                val sonicletDir = File(musicDir, "Soniclet").apply { if (!exists()) mkdirs() }
+                val targetFile = uniqueTargetFile(sonicletDir, safeName, "m4a")
+                FileInputStream(tempFile).use { input ->
+                    FileOutputStream(targetFile).use { output -> input.copyTo(output) }
+                }
+                finalFile = targetFile
+                MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(targetFile.absolutePath),
+                    arrayOf("audio/mp4")
+                ) { _, uri ->
+                    if (finalUri == null && uri != null) finalUri = uri
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Legacy public Music save failed: ${e.message}")
             }
         }
 
-        // App-specific external music folder fallback (Always writable without scoped storage restrictions)
-        try {
-            val appMusicDir = File(context.getExternalFilesDir(Environment.DIRECTORY_MUSIC), "Soniclet").apply { if (!exists()) mkdirs() }
-            val appTargetFile = File(appMusicDir, displayName)
+        // Fallback to app-scoped Music directory ONLY if MediaStore & legacy both failed
+        if (finalUri == null && finalFile == null) {
+            val appMusicDir = File(context.getExternalFilesDir(Environment.DIRECTORY_MUSIC), "Soniclet").apply {
+                if (!exists()) mkdirs()
+            }
+            val appTargetFile = uniqueTargetFile(appMusicDir, safeName, "m4a")
             FileInputStream(tempFile).use { input ->
-                FileOutputStream(appTargetFile).use { output ->
-                    input.copyTo(output)
-                }
+                FileOutputStream(appTargetFile).use { output -> input.copyTo(output) }
             }
             finalFile = appTargetFile
-        } catch (e: Exception) {
-            Log.w(TAG, "App files dir copy error: ${e.message}")
-        }
-
-        // Public music folder
-        try {
-            val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-            val sonicletDir = File(musicDir, "Soniclet").apply { if (!exists()) mkdirs() }
-            val targetFile = File(sonicletDir, displayName)
-
-            FileInputStream(tempFile).use { input ->
-                FileOutputStream(targetFile).use { output ->
-                    input.copyTo(output)
-                }
-            }
-
-            finalFile = targetFile
-
-            MediaScannerConnection.scanFile(
-                context,
-                arrayOf(targetFile.absolutePath),
-                arrayOf("audio/mp4", "audio/m4a", "audio/aac")
-            ) { _, uri ->
-                if (finalUri == null && uri != null) {
-                    finalUri = uri
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Direct storage copy fallback: ${e.message}")
         }
 
         val durationMs = if (config.endMs > config.startMs) {
@@ -601,34 +1011,48 @@ object VideoToM4aConverterUtil {
             0L
         }
 
-        val sizeFormatted = formatFileSize(finalFile?.length() ?: tempFile.length())
-
         return ConversionResult(
-            outputFile = finalFile ?: tempFile,
+            outputFile = finalFile,
             outputUri = finalUri,
             title = config.outputTitle,
             artist = config.outputArtist,
             album = config.outputAlbum,
             durationMs = durationMs,
-            fileSizeFormatted = sizeFormatted,
+            fileSizeFormatted = formatFileSize(finalFile?.length() ?: fileBytes),
             bitrateInfo = bitrateInfo
         )
     }
 
+    private fun uniqueTargetFile(dir: File, baseName: String, ext: String): File {
+        var candidate = File(dir, "$baseName.$ext")
+        var idx = 1
+        while (candidate.exists()) {
+            candidate = File(dir, "${baseName}_$idx.$ext")
+            idx++
+        }
+        return candidate
+    }
+
+    private fun safeDelete(file: File) {
+        try {
+            if (file.exists()) file.delete()
+        } catch (_: Exception) {}
+    }
+
     fun calculateEstimatedSize(durationMs: Long, bitrate: AudioBitrate): String {
-        if (durationMs <= 0) return "~0 MB"
-        val minutes = durationMs / 60000.0
-        val sizeMb = minutes * bitrate.approxMbPerMin
+        if (durationMs <= 0L) return "~0.1 MB"
+        val minutes = durationMs / 60_000.0
+        val sizeMb = (minutes * bitrate.approxMbPerMin).coerceAtLeast(0.1)
         return String.format(Locale.getDefault(), "~%.1f MB", sizeMb)
     }
 
     fun formatDuration(ms: Long): String {
-        if (ms <= 0) return "00:00"
-        val totalSecs = ms / 1000
-        val hours = totalSecs / 3600
-        val mins = (totalSecs % 3600) / 60
-        val secs = totalSecs % 60
-        return if (hours > 0) {
+        if (ms <= 0L) return "00:00"
+        val totalSecs = ms / 1000L
+        val hours = totalSecs / 3600L
+        val mins = (totalSecs % 3600L) / 60L
+        val secs = totalSecs % 60L
+        return if (hours > 0L) {
             String.format(Locale.getDefault(), "%d:%02d:%02d", hours, mins, secs)
         } else {
             String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
@@ -636,7 +1060,7 @@ object VideoToM4aConverterUtil {
     }
 
     fun formatFileSize(bytes: Long): String {
-        if (bytes <= 0) return "0 B"
+        if (bytes <= 0L) return "0 B"
         val kb = bytes / 1024.0
         val mb = kb / 1024.0
         val gb = mb / 1024.0

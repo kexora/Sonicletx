@@ -7,47 +7,56 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Shader
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.Dispatchers
 import android.widget.RemoteViews
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.drawable.DrawableCompat
+import androidx.palette.graphics.Palette
 import com.kexora.soniclet.MainActivity
 import com.kexora.soniclet.R
 import com.kexora.soniclet.database.Song
-import com.kexora.soniclet.service.NotificationActionReceiver
 import com.kexora.soniclet.player.RepeatMode
+import com.kexora.soniclet.service.NotificationActionReceiver
+import com.kexora.soniclet.utils.SmartTitleCleaner
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.util.Locale
 
 object SonicletWidgetManager {
 
     private const val PREFS_NAME = "soniclet_widget_prefs"
 
     // Customization Keys
-    const val KEY_THEME = "widget_theme" // AMOLED, GLASS, FROSTED, ACCENT, GRADIENT, TRANSPARENT
+    const val KEY_THEME = "widget_theme" // AMOLED, GLASS, LIGHT_GLASS, ALBUM_COLOR
     const val KEY_CORNER_RADIUS = "widget_corner_radius" // PILL, ROUNDED, SQUARE
     const val KEY_CORNER_RADIUS_FLOAT = "widget_corner_radius_float" // 0.0f (square) to 1.0f (pill)
-    const val KEY_OPACITY = "widget_opacity" // 1.0f, 0.85f, 0.65f, 0.40f, 0.15f
+    const val KEY_OPACITY = "widget_opacity" // 0.20f to 1.0f
     const val KEY_BLUR = "widget_blur" // 0.0f (sharp) to 1.0f (deep blur)
-    const val KEY_ACCENT_COLOR = "widget_accent_color" // Long hex (e.g., 0xFF00E676)
-    const val KEY_BG_COVER_ART = "widget_bg_cover_art" // Full cover art background
-    const val KEY_HIDE_ART_THUMBNAIL = "widget_hide_art_thumbnail" // Hide small art box when bg is art
+    const val KEY_ACCENT_COLOR = "widget_accent_color" // Long ARGB hex (e.g., 0xFF00E676)
+    const val KEY_BG_COVER_ART = "widget_bg_cover_art" // Show album photo in background
+    const val KEY_HIDE_ART_THUMBNAIL = "widget_hide_art_thumbnail"
     const val KEY_SHOW_FAVORITE = "widget_show_favorite"
     const val KEY_SHOW_SECONDARY = "widget_show_secondary"
     const val KEY_SHOW_PROGRESS = "widget_show_progress"
+    const val KEY_SHOW_QUALITY_TAG = "widget_show_quality_tag"
     const val KEY_SHOW_SEEK_BUTTONS = "widget_show_seek_buttons"
     const val KEY_SHOW_PREV_NEXT = "widget_show_prev_next"
     const val KEY_SHOW_SHUFFLE_REPEAT = "widget_show_shuffle_repeat"
@@ -60,6 +69,7 @@ object SonicletWidgetManager {
     private const val CACHE_SONG_ALBUM = "cache_song_album"
     private const val CACHE_SONG_URI = "cache_song_uri"
     private const val CACHE_SONG_ART_URI = "cache_song_art_uri"
+    private const val CACHE_SONG_PATH = "cache_song_path"
     private const val CACHE_SONG_DURATION = "cache_song_duration"
     private const val CACHE_IS_PLAYING = "cache_is_playing"
     private const val CACHE_IS_FAV = "cache_is_fav"
@@ -67,13 +77,14 @@ object SonicletWidgetManager {
     private const val CACHE_IS_SHUFFLE = "cache_is_shuffle"
     private const val CACHE_POSITION = "cache_position"
 
-    
+    private const val DEFAULT_ACCENT_HEX = 0xFF00E676L
+
     fun triggerHeartPop(context: Context) {
         val prefs = getPrefs(context)
         prefs.edit().putBoolean("CACHE_HEART_POP", true).apply()
         updateAllWidgetsFromCache(context)
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-            kotlinx.coroutines.delay(200)
+        GlobalScope.launch(Dispatchers.Main) {
+            delay(200)
             prefs.edit().putBoolean("CACHE_HEART_POP", false).apply()
             updateAllWidgetsFromCache(context)
         }
@@ -83,7 +94,6 @@ object SonicletWidgetManager {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    // Save Customization
     fun saveCustomization(
         context: Context,
         theme: String? = null,
@@ -97,6 +107,7 @@ object SonicletWidgetManager {
         showFavorite: Boolean? = null,
         showSecondary: Boolean? = null,
         showProgress: Boolean? = null,
+        showQualityTag: Boolean? = null,
         showSeekButtons: Boolean? = null,
         showPrevNext: Boolean? = null,
         showShuffleRepeat: Boolean? = null,
@@ -106,15 +117,16 @@ object SonicletWidgetManager {
         val editor = getPrefs(context).edit()
         theme?.let { editor.putString(KEY_THEME, it) }
         cornerRadius?.let { editor.putString(KEY_CORNER_RADIUS, it) }
-        cornerRadiusFloat?.let { editor.putFloat(KEY_CORNER_RADIUS_FLOAT, it) }
-        opacity?.let { editor.putFloat(KEY_OPACITY, it) }
-        blur?.let { editor.putFloat(KEY_BLUR, it) }
+        cornerRadiusFloat?.let { editor.putFloat(KEY_CORNER_RADIUS_FLOAT, it.coerceIn(0f, 1f)) }
+        opacity?.let { editor.putFloat(KEY_OPACITY, it.coerceIn(0.20f, 1f)) }
+        blur?.let { editor.putFloat(KEY_BLUR, it.coerceIn(0f, 1f)) }
         accentColor?.let { editor.putLong(KEY_ACCENT_COLOR, it) }
         bgCoverArt?.let { editor.putBoolean(KEY_BG_COVER_ART, it) }
         hideArtThumbnail?.let { editor.putBoolean(KEY_HIDE_ART_THUMBNAIL, it) }
         showFavorite?.let { editor.putBoolean(KEY_SHOW_FAVORITE, it) }
         showSecondary?.let { editor.putBoolean(KEY_SHOW_SECONDARY, it) }
         showProgress?.let { editor.putBoolean(KEY_SHOW_PROGRESS, it) }
+        showQualityTag?.let { editor.putBoolean(KEY_SHOW_QUALITY_TAG, it) }
         showSeekButtons?.let { editor.putBoolean(KEY_SHOW_SEEK_BUTTONS, it) }
         showPrevNext?.let { editor.putBoolean(KEY_SHOW_PREV_NEXT, it) }
         showShuffleRepeat?.let { editor.putBoolean(KEY_SHOW_SHUFFLE_REPEAT, it) }
@@ -122,11 +134,9 @@ object SonicletWidgetManager {
         liveSync?.let { editor.putBoolean(KEY_LIVE_SYNC, it) }
         editor.apply()
 
-        // Trigger live refresh of all widgets
         updateAllWidgetsFromCache(context)
     }
 
-    // Cache Playback State & Update
     fun updateAllWidgets(
         context: Context,
         song: Song?,
@@ -140,11 +150,18 @@ object SonicletWidgetManager {
         val editor = prefs.edit()
 
         if (song != null) {
-            editor.putString(CACHE_SONG_TITLE, song.title)
-            editor.putString(CACHE_SONG_ARTIST, song.artist)
+            val cleanedTitle = SmartTitleCleaner.cleanTitle(song.title, song.filePath)
+            val cleanedArtist = if (SmartTitleCleaner.isPlaceholderArtist(song.artist)) {
+                "Unknown Artist"
+            } else {
+                song.artist.trim()
+            }
+            editor.putString(CACHE_SONG_TITLE, cleanedTitle)
+            editor.putString(CACHE_SONG_ARTIST, cleanedArtist)
             editor.putString(CACHE_SONG_ALBUM, song.album)
             editor.putString(CACHE_SONG_URI, song.contentUri.toString())
             editor.putString(CACHE_SONG_ART_URI, song.albumArtUri?.toString())
+            editor.putString(CACHE_SONG_PATH, song.filePath)
             editor.putLong(CACHE_SONG_DURATION, song.duration)
         }
         editor.putBoolean(CACHE_IS_PLAYING, isPlaying)
@@ -154,14 +171,23 @@ object SonicletWidgetManager {
         editor.putLong(CACHE_POSITION, currentPositionMs)
         editor.apply()
 
+        val title = prefs.getString(CACHE_SONG_TITLE, "Soniclet Music") ?: "Soniclet Music"
+        val artist = prefs.getString(CACHE_SONG_ARTIST, "Tap to play") ?: "Tap to play"
+        val album = prefs.getString(CACHE_SONG_ALBUM, "Soniclet Library") ?: "Soniclet Library"
+        val contentUriString = song?.contentUri?.toString() ?: prefs.getString(CACHE_SONG_URI, null)
+        val artUriString = song?.albumArtUri?.toString() ?: prefs.getString(CACHE_SONG_ART_URI, null)
+        val filePath = song?.filePath ?: prefs.getString(CACHE_SONG_PATH, "") ?: ""
+        val durationMs = song?.duration ?: prefs.getLong(CACHE_SONG_DURATION, 0L)
+
         renderAllWidgetProviders(
             context = context,
-            title = song?.title ?: prefs.getString(CACHE_SONG_TITLE, "Soniclet Music") ?: "Soniclet Music",
-            artist = song?.artist ?: prefs.getString(CACHE_SONG_ARTIST, "Soniclet") ?: "Soniclet",
-            album = song?.album ?: prefs.getString(CACHE_SONG_ALBUM, "HD Audio") ?: "HD Audio",
-            contentUriString = song?.contentUri?.toString() ?: prefs.getString(CACHE_SONG_URI, null),
-            artUriString = song?.albumArtUri?.toString() ?: prefs.getString(CACHE_SONG_ART_URI, null),
-            durationMs = song?.duration ?: prefs.getLong(CACHE_SONG_DURATION, 0L),
+            title = title,
+            artist = artist,
+            album = album,
+            contentUriString = contentUriString,
+            artUriString = artUriString,
+            filePath = filePath,
+            durationMs = durationMs,
             positionMs = currentPositionMs,
             isPlaying = isPlaying,
             isFavorite = isFavorite,
@@ -174,16 +200,17 @@ object SonicletWidgetManager {
     fun updateAllWidgetsFromCache(context: Context) {
         val prefs = getPrefs(context)
         val title = prefs.getString(CACHE_SONG_TITLE, "Soniclet Music") ?: "Soniclet Music"
-        val artist = prefs.getString(CACHE_SONG_ARTIST, "Soniclet") ?: "Soniclet"
-        val album = prefs.getString(CACHE_SONG_ALBUM, "HD Audio") ?: "HD Audio"
+        val artist = prefs.getString(CACHE_SONG_ARTIST, "Tap to play") ?: "Tap to play"
+        val album = prefs.getString(CACHE_SONG_ALBUM, "Soniclet Library") ?: "Soniclet Library"
         val contentUriString = prefs.getString(CACHE_SONG_URI, null)
         val artUriString = prefs.getString(CACHE_SONG_ART_URI, null)
+        val filePath = prefs.getString(CACHE_SONG_PATH, "") ?: ""
         val durationMs = prefs.getLong(CACHE_SONG_DURATION, 0L)
         val positionMs = prefs.getLong(CACHE_POSITION, 0L)
         val isPlaying = prefs.getBoolean(CACHE_IS_PLAYING, false)
         val isFavorite = prefs.getBoolean(CACHE_IS_FAV, false)
         val repeatModeStr = prefs.getString(CACHE_REPEAT_MODE, RepeatMode.OFF.name) ?: RepeatMode.OFF.name
-        val repeatMode = try { RepeatMode.valueOf(repeatModeStr) } catch (e: Exception) { RepeatMode.OFF }
+        val repeatMode = try { RepeatMode.valueOf(repeatModeStr) } catch (_: Exception) { RepeatMode.OFF }
         val isShuffle = prefs.getBoolean(CACHE_IS_SHUFFLE, false)
         val isHeartPop = prefs.getBoolean("CACHE_HEART_POP", false)
 
@@ -194,13 +221,14 @@ object SonicletWidgetManager {
             album = album,
             contentUriString = contentUriString,
             artUriString = artUriString,
+            filePath = filePath,
             durationMs = durationMs,
             positionMs = positionMs,
             isPlaying = isPlaying,
             isFavorite = isFavorite,
             repeatMode = repeatMode,
             isShuffle = isShuffle,
-            isHeartPop = false
+            isHeartPop = isHeartPop
         )
     }
 
@@ -211,6 +239,7 @@ object SonicletWidgetManager {
         album: String,
         contentUriString: String?,
         artUriString: String?,
+        filePath: String,
         durationMs: Long,
         positionMs: Long,
         isPlaying: Boolean,
@@ -220,12 +249,14 @@ object SonicletWidgetManager {
         isHeartPop: Boolean = false
     ) {
         val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
-        val adaptiveIds = appWidgetManager.getAppWidgetIds(android.content.ComponentName(context, SonicletWidgetProvider::class.java))
-        
+        val adaptiveIds = appWidgetManager.getAppWidgetIds(
+            ComponentName(context, SonicletWidgetProvider::class.java)
+        )
+
         for (id in adaptiveIds) {
             updateWidgetByIdInternal(
                 context, appWidgetManager, id,
-                title, artist, album, contentUriString, artUriString,
+                title, artist, album, contentUriString, artUriString, filePath,
                 durationMs, positionMs, isPlaying, isFavorite, repeatMode.name, isShuffle, isHeartPop
             )
         }
@@ -234,10 +265,11 @@ object SonicletWidgetManager {
     fun updateWidgetById(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
         val prefs = getPrefs(context)
         val title = prefs.getString(CACHE_SONG_TITLE, "Soniclet Music") ?: "Soniclet Music"
-        val artist = prefs.getString(CACHE_SONG_ARTIST, "Soniclet") ?: "Soniclet"
-        val album = prefs.getString(CACHE_SONG_ALBUM, "HD Audio") ?: "HD Audio"
+        val artist = prefs.getString(CACHE_SONG_ARTIST, "Tap to play") ?: "Tap to play"
+        val album = prefs.getString(CACHE_SONG_ALBUM, "Soniclet Library") ?: "Soniclet Library"
         val contentUriString = prefs.getString(CACHE_SONG_URI, null)
         val artUriString = prefs.getString(CACHE_SONG_ART_URI, null)
+        val filePath = prefs.getString(CACHE_SONG_PATH, "") ?: ""
         val durationMs = prefs.getLong(CACHE_SONG_DURATION, 0L)
         val positionMs = prefs.getLong(CACHE_POSITION, 0L)
         val isPlaying = prefs.getBoolean(CACHE_IS_PLAYING, false)
@@ -245,50 +277,107 @@ object SonicletWidgetManager {
         val repeatModeStr = prefs.getString(CACHE_REPEAT_MODE, RepeatMode.OFF.name) ?: RepeatMode.OFF.name
         val isShuffle = prefs.getBoolean(CACHE_IS_SHUFFLE, false)
         val isHeartPop = prefs.getBoolean("CACHE_HEART_POP", false)
-        
+
         updateWidgetByIdInternal(
             context, appWidgetManager, appWidgetId,
-            title, artist, album, contentUriString, artUriString,
+            title, artist, album, contentUriString, artUriString, filePath,
             durationMs, positionMs, isPlaying, isFavorite, repeatModeStr, isShuffle, isHeartPop
         )
     }
 
     private fun updateWidgetByIdInternal(
-        context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int,
-        title: String, artist: String, album: String, contentUriString: String?, artUriString: String?,
-        durationMs: Long, positionMs: Long, isPlaying: Boolean, isFavorite: Boolean, repeatModeStr: String, isShuffle: Boolean, isHeartPop: Boolean
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        title: String,
+        artist: String,
+        album: String,
+        contentUriString: String?,
+        artUriString: String?,
+        filePath: String,
+        durationMs: Long,
+        positionMs: Long,
+        isPlaying: Boolean,
+        isFavorite: Boolean,
+        repeatModeStr: String,
+        isShuffle: Boolean,
+        isHeartPop: Boolean
     ) {
         val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
         val minWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
         val maxHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
-        
+
         val width = if (minWidth == 0) 250 else minWidth
         val height = if (maxHeight == 0) 110 else maxHeight
-        
-        val repeatMode = try { RepeatMode.valueOf(repeatModeStr) } catch(e: Exception) { RepeatMode.OFF }
-        
+        val repeatMode = try { RepeatMode.valueOf(repeatModeStr) } catch (_: Exception) { RepeatMode.OFF }
+
         val views = when {
-            width < 100 && height < 100 -> buildTinyRemoteViews(context, title, contentUriString, artUriString, isPlaying) // 1x1 Tiny
-            width < 180 && height < 100 -> buildSmallBarRemoteViews(context, title, contentUriString, artUriString, isPlaying) // 2x1 Mini Bar
-            width >= 180 && height < 100 -> buildCompactRemoteViews(context, title, artist, contentUriString, artUriString, isPlaying, isFavorite, durationMs, positionMs, isHeartPop) // 3x1, 4x1 Compact
-            width < 180 && height >= 100 && height < 180 -> buildSquareRemoteViews(context, title, artist, contentUriString, artUriString, isPlaying) // 2x2 Square
-            width >= 180 && height >= 100 && height < 180 -> buildCardRemoteViews(context, title, artist, album, contentUriString, artUriString, durationMs, positionMs, isPlaying, isFavorite, repeatMode, isShuffle, isHeartPop) // 3x2, 4x2 Card
-            height >= 180 && width < 230 -> buildVinylRemoteViews(context, title, artist, contentUriString, artUriString, isPlaying, isFavorite, isShuffle, isHeartPop) // 3x3 Vinyl
-            else -> buildProRemoteViews(context, title, artist, album, contentUriString, artUriString, durationMs, positionMs, isPlaying, isFavorite, repeatMode, isShuffle, isHeartPop) // 4x3, 4x4 Pro
+            width < 110 && height < 110 -> buildTinyRemoteViews(
+                context, title, contentUriString, artUriString, isPlaying
+            )
+            width < 220 && height < 110 -> buildSmallBarRemoteViews(
+                context, title, artist, contentUriString, artUriString, isPlaying
+            )
+            width >= 220 && height < 110 -> buildCompactRemoteViews(
+                context, title, artist, contentUriString, artUriString, isPlaying, isFavorite, durationMs, positionMs, isHeartPop
+            )
+            width < 200 && height in 110..179 -> buildSquareRemoteViews(
+                context, title, artist, contentUriString, artUriString, isPlaying
+            )
+            width >= 200 && height in 110..179 -> buildCardRemoteViews(
+                context, title, artist, album, contentUriString, artUriString, durationMs, positionMs, isPlaying, isFavorite, repeatMode, isShuffle, isHeartPop
+            )
+            height >= 180 && width < 230 -> buildVinylRemoteViews(
+                context, title, artist, contentUriString, artUriString, isPlaying, isFavorite, isShuffle, isHeartPop
+            )
+            else -> buildProRemoteViews(
+                context, title, artist, album, contentUriString, artUriString, filePath, durationMs, positionMs, isPlaying, isFavorite, repeatMode, isShuffle, isHeartPop
+            )
         }
         appWidgetManager.updateAppWidget(appWidgetId, views)
     }
 
+    private fun readAccentColor(prefs: SharedPreferences): Int {
+        return try {
+            prefs.getLong(KEY_ACCENT_COLOR, DEFAULT_ACCENT_HEX).toInt()
+        } catch (_: Exception) {
+            try {
+                prefs.getInt(KEY_ACCENT_COLOR, DEFAULT_ACCENT_HEX.toInt())
+            } catch (_: Exception) {
+                DEFAULT_ACCENT_HEX.toInt()
+            }
+        }
+    }
+
+    private fun isLightSurface(theme: String, bgCoverArt: Boolean, hasRealCoverArt: Boolean): Boolean {
+        return theme == "LIGHT_GLASS" && !(bgCoverArt && hasRealCoverArt)
+    }
+
+    private fun detectQualityBadge(filePath: String, uriString: String?): String {
+        val sample = (filePath.ifBlank { uriString ?: "" }).lowercase(Locale.ROOT)
+        return when {
+            sample.endsWith(".flac") || sample.endsWith(".wav") || sample.endsWith(".alac") || sample.endsWith(".aiff") -> "HI-RES"
+            sample.endsWith(".m4a") || sample.endsWith(".aac") -> "M4A"
+            sample.endsWith(".ogg") || sample.endsWith(".opus") -> "OPUS"
+            else -> "MP3"
+        }
+    }
+
+    private fun applyIconTint(views: RemoteViews, viewId: Int, tintColor: Int) {
+        views.setInt(viewId, "setColorFilter", tintColor)
+    }
+
     // PendingIntent Generators
-    fun getLaunchAppPendingIntent(context: Context, reqCode: Int, actionStr: String? = null, targetTab: String? = null): PendingIntent {
+    fun getLaunchAppPendingIntent(
+        context: Context,
+        reqCode: Int,
+        actionStr: String? = null,
+        targetTab: String? = null
+    ): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            if (actionStr != null) {
-                action = actionStr
-            }
-            if (targetTab != null) {
-                putExtra("target_tab", targetTab)
-            }
+            if (actionStr != null) action = actionStr
+            if (targetTab != null) putExtra("target_tab", targetTab)
         }
         return PendingIntent.getActivity(
             context,
@@ -310,130 +399,121 @@ object SonicletWidgetManager {
         )
     }
 
-    // Builder 1: Compact Widget RemoteViews
-
+    // 1. Tiny 1x1 Widget (Full-bleed rounded album cover + centered Play/Pause, zero cramped text)
     fun buildTinyRemoteViews(
-        context: Context, title: String, contentUriString: String?, artUriString: String?, isPlaying: Boolean
+        context: Context,
+        title: String,
+        contentUriString: String?,
+        artUriString: String?,
+        isPlaying: Boolean
     ): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_tiny_layout)
         val prefs = getPrefs(context)
         val theme = prefs.getString(KEY_THEME, "AMOLED") ?: "AMOLED"
-        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 1.0f)
-        val accentColor = try { prefs.getLong(KEY_ACCENT_COLOR, 0xFFFFFFFF).toInt() } catch (e: Exception) { try { prefs.getInt(KEY_ACCENT_COLOR, 0xFFFFFFFF.toInt()) } catch(e2: Exception) { 0xFFFFFFFF.toInt() } }
+        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 0.55f)
+        val accentColor = readAccentColor(prefs)
         val bgCoverArt = prefs.getBoolean(KEY_BG_COVER_ART, true)
-        val hideArtThumbnail = prefs.getBoolean(KEY_HIDE_ART_THUMBNAIL, true)
+        val dynamicTheme = theme == "ALBUM_COLOR" || prefs.getBoolean(KEY_DYNAMIC_THEME, false)
+        val opacity = prefs.getFloat(KEY_OPACITY, 0.85f)
 
         val rawArtBitmap = loadRawArtworkBitmap(context, contentUriString, artUriString)
         val hasRealCoverArt = rawArtBitmap != null
-        val artBitmap = loadArtworkBitmap(context, contentUriString, artUriString, 200, 200, 0f)
 
-        if (hasRealCoverArt && bgCoverArt && hideArtThumbnail) {
-            views.setViewVisibility(R.id.widget_art, View.GONE)
-        } else {
-            views.setImageViewBitmap(R.id.widget_art, artBitmap)
-            views.setViewVisibility(R.id.widget_art, View.VISIBLE)
-        }
-        
-        val dynamicTheme = prefs.getBoolean(KEY_DYNAMIC_THEME, false)
-        val opacity = prefs.getFloat(KEY_OPACITY, 0.95f)
-        val blur = prefs.getFloat(KEY_BLUR, 0.5f)
         views.setInt(R.id.widget_inner, "setBackgroundResource", 0)
-        val dynBg = getGeneratedBgBitmap(200, 200, rawArtBitmap ?: artBitmap, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur)
-        views.setImageViewBitmap(R.id.widget_dynamic_bg, dynBg)
-        views.setViewVisibility(R.id.widget_dynamic_bg, View.VISIBLE)
-        
+
+        if (hasRealCoverArt) {
+            val roundedArt = getRoundedCornerBitmap(rawArtBitmap!!, 220, 220, cornerRadiusFloat * 55f)
+            views.setImageViewBitmap(R.id.widget_art, roundedArt)
+            views.setViewVisibility(R.id.widget_art, View.VISIBLE)
+            views.setViewVisibility(R.id.widget_dynamic_bg, View.GONE)
+            views.setViewVisibility(R.id.widget_scrim, View.VISIBLE)
+        } else {
+            val dynBg = getGeneratedBgBitmap(
+                220, 220, null, false, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, 0.35f
+            )
+            views.setImageViewBitmap(R.id.widget_dynamic_bg, dynBg)
+            views.setViewVisibility(R.id.widget_dynamic_bg, View.VISIBLE)
+            views.setViewVisibility(R.id.widget_art, View.GONE)
+            views.setViewVisibility(R.id.widget_scrim, View.GONE)
+        }
+
         views.setImageViewResource(R.id.widget_btn_play, 0)
         views.setImageViewBitmap(R.id.widget_btn_play, createPlayButtonBitmap(context, isPlaying, accentColor, cornerRadiusFloat))
-        views.setOnClickPendingIntent(R.id.widget_root, getLaunchAppPendingIntent(context, 101, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING"))
-        views.setOnClickPendingIntent(R.id.widget_btn_play, getActionPendingIntent(context, NotificationActionReceiver.ACTION_PLAY_PAUSE, 104))
+        views.setOnClickPendingIntent(
+            R.id.widget_root,
+            getLaunchAppPendingIntent(context, 101, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING")
+        )
+        views.setOnClickPendingIntent(
+            R.id.widget_btn_play,
+            getActionPendingIntent(context, NotificationActionReceiver.ACTION_PLAY_PAUSE, 104)
+        )
         return views
     }
 
+    // 2. Small Bar 4x1 Widget
     fun buildSmallBarRemoteViews(
-        context: Context, title: String, contentUriString: String?, artUriString: String?, isPlaying: Boolean
+        context: Context,
+        title: String,
+        artist: String = "Tap to play",
+        contentUriString: String? = null,
+        artUriString: String? = null,
+        isPlaying: Boolean = false
     ): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_small_bar_layout)
         val prefs = getPrefs(context)
         val theme = prefs.getString(KEY_THEME, "AMOLED") ?: "AMOLED"
-        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 1.0f)
-        val accentColor = try { prefs.getLong(KEY_ACCENT_COLOR, 0xFFFFFFFF).toInt() } catch (e: Exception) { try { prefs.getInt(KEY_ACCENT_COLOR, 0xFFFFFFFF.toInt()) } catch(e2: Exception) { 0xFFFFFFFF.toInt() } }
+        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 0.55f)
+        val accentColor = readAccentColor(prefs)
         val bgCoverArt = prefs.getBoolean(KEY_BG_COVER_ART, true)
-        val hideArtThumbnail = prefs.getBoolean(KEY_HIDE_ART_THUMBNAIL, true)
+        val dynamicTheme = theme == "ALBUM_COLOR" || prefs.getBoolean(KEY_DYNAMIC_THEME, false)
+        val opacity = prefs.getFloat(KEY_OPACITY, 0.85f)
+        val blur = prefs.getFloat(KEY_BLUR, 0.55f)
 
         val rawArtBitmap = loadRawArtworkBitmap(context, contentUriString, artUriString)
         val hasRealCoverArt = rawArtBitmap != null
-        val artBitmap = loadArtworkBitmap(context, contentUriString, artUriString, 120, 120, 16f)
+        val artBitmap = loadArtworkBitmap(context, contentUriString, artUriString, 120, 120, 12f)
+        val lightMode = isLightSurface(theme, bgCoverArt, hasRealCoverArt)
 
-        if (hasRealCoverArt && bgCoverArt && hideArtThumbnail) {
-            views.setViewVisibility(R.id.widget_art, View.GONE)
-        } else {
-            views.setImageViewBitmap(R.id.widget_art, artBitmap)
-            views.setViewVisibility(R.id.widget_art, View.VISIBLE)
-        }
-        
-        val dynamicTheme = prefs.getBoolean(KEY_DYNAMIC_THEME, false)
-        val opacity = prefs.getFloat(KEY_OPACITY, 0.95f)
-        val blur = prefs.getFloat(KEY_BLUR, 0.5f)
+        views.setImageViewBitmap(R.id.widget_art, artBitmap)
+        views.setViewVisibility(R.id.widget_art, View.VISIBLE)
+
         views.setInt(R.id.widget_inner, "setBackgroundResource", 0)
-        val dynBg = getGeneratedBgBitmap(500, 200, rawArtBitmap ?: artBitmap, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur)
+        val dynBg = getGeneratedBgBitmap(
+            640, 180, rawArtBitmap ?: artBitmap, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur
+        )
         views.setImageViewBitmap(R.id.widget_dynamic_bg, dynBg)
         views.setViewVisibility(R.id.widget_dynamic_bg, View.VISIBLE)
-        
-        // Adaptive padding for corner radius
-        val density = context.resources.displayMetrics.density
-        val padH = (cornerRadiusFloat * 10 * density).toInt() + (8 * density).toInt()
-        val padV = (6 * density).toInt()
-        views.setViewPadding(R.id.widget_inner, padH, padV, padH, padV)
+
+        val titleColor = if (lightMode) Color.parseColor("#141917") else Color.WHITE
+        val subtitleColor = if (lightMode) Color.parseColor("#545B58") else Color.parseColor("#B8BCC2")
+        val iconTint = if (lightMode) Color.parseColor("#1D2320") else Color.WHITE
 
         views.setTextViewText(R.id.widget_title, title)
-        
-        views.setImageViewResource(R.id.widget_btn_play, 0)
-        views.setImageViewBitmap(R.id.widget_btn_play, createPlayButtonBitmap(context, isPlaying, accentColor, cornerRadiusFloat))
-        views.setOnClickPendingIntent(R.id.widget_root, getLaunchAppPendingIntent(context, 111, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING"))
-        views.setOnClickPendingIntent(R.id.widget_btn_play, getActionPendingIntent(context, NotificationActionReceiver.ACTION_PLAY_PAUSE, 114))
-        return views
-    }
-
-    fun buildSquareRemoteViews(
-        context: Context, title: String, artist: String, contentUriString: String?, artUriString: String?, isPlaying: Boolean
-    ): RemoteViews {
-        val views = RemoteViews(context.packageName, R.layout.widget_square_layout)
-        val prefs = getPrefs(context)
-        val theme = prefs.getString(KEY_THEME, "AMOLED") ?: "AMOLED"
-        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 1.0f)
-        val accentColor = try { prefs.getLong(KEY_ACCENT_COLOR, 0xFFFFFFFF).toInt() } catch (e: Exception) { try { prefs.getInt(KEY_ACCENT_COLOR, 0xFFFFFFFF.toInt()) } catch(e2: Exception) { 0xFFFFFFFF.toInt() } }
-        val bgCoverArt = prefs.getBoolean(KEY_BG_COVER_ART, true)
-        val hideArtThumbnail = prefs.getBoolean(KEY_HIDE_ART_THUMBNAIL, true)
-
-        val rawArtBitmap = loadRawArtworkBitmap(context, contentUriString, artUriString)
-        val hasRealCoverArt = rawArtBitmap != null
-        val artBitmap = loadArtworkBitmap(context, contentUriString, artUriString, 300, 300, 0f)
-
-        if (hasRealCoverArt && bgCoverArt && hideArtThumbnail) {
-            views.setViewVisibility(R.id.widget_art, View.GONE)
-        } else {
-            views.setImageViewBitmap(R.id.widget_art, artBitmap)
-            views.setViewVisibility(R.id.widget_art, View.VISIBLE)
-        }
-        
-        val dynamicTheme = prefs.getBoolean(KEY_DYNAMIC_THEME, false)
-        val opacity = prefs.getFloat(KEY_OPACITY, 0.95f)
-        val blur = prefs.getFloat(KEY_BLUR, 0.5f)
-        views.setInt(R.id.widget_inner, "setBackgroundResource", 0)
-        val dynBg = getGeneratedBgBitmap(400, 400, rawArtBitmap ?: artBitmap, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur)
-        views.setImageViewBitmap(R.id.widget_dynamic_bg, dynBg)
-        views.setViewVisibility(R.id.widget_dynamic_bg, View.VISIBLE)
-        
-        views.setTextViewText(R.id.widget_title, title)
+        views.setTextColor(R.id.widget_title, titleColor)
         views.setTextViewText(R.id.widget_artist, artist)
-        
+        views.setTextColor(R.id.widget_artist, subtitleColor)
+
+        applyIconTint(views, R.id.widget_btn_prev, iconTint)
+        applyIconTint(views, R.id.widget_btn_next, iconTint)
+
         views.setImageViewResource(R.id.widget_btn_play, 0)
         views.setImageViewBitmap(R.id.widget_btn_play, createPlayButtonBitmap(context, isPlaying, accentColor, cornerRadiusFloat))
-        views.setOnClickPendingIntent(R.id.widget_root, getLaunchAppPendingIntent(context, 121, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING"))
-        views.setOnClickPendingIntent(R.id.widget_btn_play, getActionPendingIntent(context, NotificationActionReceiver.ACTION_PLAY_PAUSE, 124))
+
+        views.setOnClickPendingIntent(
+            R.id.widget_root,
+            getLaunchAppPendingIntent(context, 111, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING")
+        )
+        views.setOnClickPendingIntent(
+            R.id.widget_info_container,
+            getLaunchAppPendingIntent(context, 112, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING")
+        )
+        views.setOnClickPendingIntent(R.id.widget_btn_prev, getActionPendingIntent(context, NotificationActionReceiver.ACTION_PREVIOUS, 113))
+        views.setOnClickPendingIntent(R.id.widget_btn_play, getActionPendingIntent(context, NotificationActionReceiver.ACTION_PLAY_PAUSE, 114))
+        views.setOnClickPendingIntent(R.id.widget_btn_next, getActionPendingIntent(context, NotificationActionReceiver.ACTION_NEXT, 115))
         return views
     }
 
+    // 3. Compact 4x1 Widget
     fun buildCompactRemoteViews(
         context: Context,
         title: String,
@@ -450,60 +530,60 @@ object SonicletWidgetManager {
         val prefs = getPrefs(context)
 
         val theme = prefs.getString(KEY_THEME, "AMOLED") ?: "AMOLED"
-        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 1.0f)
+        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 0.55f)
         val showFav = prefs.getBoolean(KEY_SHOW_FAVORITE, true)
         val showPrevNext = prefs.getBoolean(KEY_SHOW_PREV_NEXT, true)
         val showProgress = prefs.getBoolean(KEY_SHOW_PROGRESS, true)
         val bgCoverArt = prefs.getBoolean(KEY_BG_COVER_ART, true)
-        val hideArtThumbnail = prefs.getBoolean(KEY_HIDE_ART_THUMBNAIL, true)
-        val accentColor = try { prefs.getLong(KEY_ACCENT_COLOR, 0xFFFFFFFF).toInt() } catch (e: Exception) { try { prefs.getInt(KEY_ACCENT_COLOR, 0xFFFFFFFF.toInt()) } catch(e2: Exception) { 0xFFFFFFFF.toInt() } }
+        val accentColor = readAccentColor(prefs)
+        val dynamicTheme = theme == "ALBUM_COLOR" || prefs.getBoolean(KEY_DYNAMIC_THEME, false)
+        val opacity = prefs.getFloat(KEY_OPACITY, 0.85f)
+        val blur = prefs.getFloat(KEY_BLUR, 0.55f)
 
         val rawArtBitmap = loadRawArtworkBitmap(context, contentUriString, artUriString)
         val hasRealCoverArt = rawArtBitmap != null
-        val artBitmap = loadArtworkBitmap(context, contentUriString, artUriString, 120, 120, 16f)
+        val artBitmap = loadArtworkBitmap(context, contentUriString, artUriString, 140, 140, 14f)
+        val lightMode = isLightSurface(theme, bgCoverArt, hasRealCoverArt)
 
-        // Cover art in background; remove separate photo box when enabled
-        if (hasRealCoverArt && bgCoverArt && hideArtThumbnail) {
-            views.setViewVisibility(R.id.widget_art, View.GONE)
-        } else {
-            views.setImageViewBitmap(R.id.widget_art, artBitmap)
-            views.setViewVisibility(R.id.widget_art, View.VISIBLE)
-        }
+        views.setImageViewBitmap(R.id.widget_art, artBitmap)
+        views.setViewVisibility(R.id.widget_art, View.VISIBLE)
 
-        val dynamicTheme = prefs.getBoolean(KEY_DYNAMIC_THEME, false)
-        val opacity = prefs.getFloat(KEY_OPACITY, 0.95f)
-        val blur = prefs.getFloat(KEY_BLUR, 0.5f)
         views.setInt(R.id.widget_inner, "setBackgroundResource", 0)
-        val dynBg = getGeneratedBgBitmap(800, 200, rawArtBitmap ?: artBitmap, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur)
+        val dynBg = getGeneratedBgBitmap(
+            800, 200, rawArtBitmap ?: artBitmap, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur
+        )
         views.setImageViewBitmap(R.id.widget_dynamic_bg, dynBg)
         views.setViewVisibility(R.id.widget_dynamic_bg, View.VISIBLE)
 
-        // Adaptive padding
-        val density = context.resources.displayMetrics.density
-        val padH = (cornerRadiusFloat * 12 * density).toInt() + (8 * density).toInt()
-        val padV = (6 * density).toInt()
-        views.setViewPadding(R.id.widget_inner, padH, padV, padH, padV)
+        val titleColor = if (lightMode) Color.parseColor("#141917") else Color.WHITE
+        val subtitleColor = if (lightMode) Color.parseColor("#545B58") else Color.parseColor("#B8BCC2")
+        val iconTint = if (lightMode) Color.parseColor("#1D2320") else Color.WHITE
 
-        // Text & Icons
         views.setTextViewText(R.id.widget_title, title)
+        views.setTextColor(R.id.widget_title, titleColor)
         views.setTextViewText(R.id.widget_artist, artist)
+        views.setTextColor(R.id.widget_artist, subtitleColor)
 
-        // Controls
         views.setImageViewResource(R.id.widget_btn_play, 0)
         views.setImageViewBitmap(R.id.widget_btn_play, createPlayButtonBitmap(context, isPlaying, accentColor, cornerRadiusFloat))
 
+        applyIconTint(views, R.id.widget_btn_prev, iconTint)
+        applyIconTint(views, R.id.widget_btn_next, iconTint)
         views.setViewVisibility(R.id.widget_btn_prev, if (showPrevNext) View.VISIBLE else View.GONE)
         views.setViewVisibility(R.id.widget_btn_next, if (showPrevNext) View.VISIBLE else View.GONE)
 
         views.setImageViewResource(R.id.widget_btn_fav, if (isFavorite) R.drawable.ic_favorite_filled else R.drawable.ic_favorite_border)
-        if (isHeartPop) {
-            views.setInt(R.id.widget_btn_fav, "setColorFilter", Color.RED)
-        } else {
-            views.setInt(R.id.widget_btn_fav, "setColorFilter", 0)
-        }
+        applyIconTint(
+            views,
+            R.id.widget_btn_fav,
+            when {
+                isHeartPop -> Color.RED
+                isFavorite -> accentColor
+                else -> iconTint
+            }
+        )
         views.setViewVisibility(R.id.widget_btn_fav, if (showFav) View.VISIBLE else View.GONE)
 
-        // Progress Bar & Touch Seek Zones
         if (showProgress && durationMs > 0) {
             views.setViewVisibility(R.id.widget_progress_container, View.VISIBLE)
             val progressPercent = ((positionMs.toFloat() / durationMs.toFloat()) * 100).toInt().coerceIn(0, 100)
@@ -514,7 +594,6 @@ object SonicletWidgetManager {
             views.setViewVisibility(R.id.widget_progress_container, View.GONE)
         }
 
-        // Click Actions
         views.setOnClickPendingIntent(R.id.widget_root, getLaunchAppPendingIntent(context, 201))
         views.setOnClickPendingIntent(R.id.widget_art, getLaunchAppPendingIntent(context, 202, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING"))
         views.setOnClickPendingIntent(R.id.widget_info_container, getLaunchAppPendingIntent(context, 203, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING"))
@@ -526,7 +605,144 @@ object SonicletWidgetManager {
         return views
     }
 
-    // Builder 2: Card Widget RemoteViews
+    // 4. Square 2x2 Widget
+    fun buildSquareRemoteViews(
+        context: Context,
+        title: String,
+        artist: String,
+        contentUriString: String?,
+        artUriString: String?,
+        isPlaying: Boolean
+    ): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.widget_square_layout)
+        val prefs = getPrefs(context)
+        val theme = prefs.getString(KEY_THEME, "AMOLED") ?: "AMOLED"
+        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 0.55f)
+        val accentColor = readAccentColor(prefs)
+        val bgCoverArt = prefs.getBoolean(KEY_BG_COVER_ART, true)
+        val dynamicTheme = theme == "ALBUM_COLOR" || prefs.getBoolean(KEY_DYNAMIC_THEME, false)
+        val opacity = prefs.getFloat(KEY_OPACITY, 0.85f)
+        val blur = prefs.getFloat(KEY_BLUR, 0.55f)
+
+        val rawArtBitmap = loadRawArtworkBitmap(context, contentUriString, artUriString)
+        val hasRealCoverArt = rawArtBitmap != null
+        val artBitmap = loadArtworkBitmap(context, contentUriString, artUriString, 180, 180, 16f)
+        val lightMode = isLightSurface(theme, bgCoverArt, hasRealCoverArt)
+
+        views.setImageViewBitmap(R.id.widget_art, artBitmap)
+        views.setViewVisibility(R.id.widget_art, View.VISIBLE)
+
+        views.setInt(R.id.widget_inner, "setBackgroundResource", 0)
+        val dynBg = getGeneratedBgBitmap(
+            400, 400, rawArtBitmap ?: artBitmap, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur
+        )
+        views.setImageViewBitmap(R.id.widget_dynamic_bg, dynBg)
+        views.setViewVisibility(R.id.widget_dynamic_bg, View.VISIBLE)
+
+        val titleColor = if (lightMode) Color.parseColor("#141917") else Color.WHITE
+        val subtitleColor = if (lightMode) Color.parseColor("#545B58") else Color.parseColor("#B8BCC2")
+        val iconTint = if (lightMode) Color.parseColor("#1D2320") else Color.WHITE
+
+        views.setTextViewText(R.id.widget_title, title)
+        views.setTextColor(R.id.widget_title, titleColor)
+        views.setTextViewText(R.id.widget_artist, artist)
+        views.setTextColor(R.id.widget_artist, subtitleColor)
+
+        applyIconTint(views, R.id.widget_btn_prev, iconTint)
+        applyIconTint(views, R.id.widget_btn_next, iconTint)
+
+        views.setImageViewResource(R.id.widget_btn_play, 0)
+        views.setImageViewBitmap(R.id.widget_btn_play, createPlayButtonBitmap(context, isPlaying, accentColor, cornerRadiusFloat))
+
+        views.setOnClickPendingIntent(R.id.widget_root, getLaunchAppPendingIntent(context, 121, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING"))
+        views.setOnClickPendingIntent(R.id.widget_btn_prev, getActionPendingIntent(context, NotificationActionReceiver.ACTION_PREVIOUS, 123))
+        views.setOnClickPendingIntent(R.id.widget_btn_play, getActionPendingIntent(context, NotificationActionReceiver.ACTION_PLAY_PAUSE, 124))
+        views.setOnClickPendingIntent(R.id.widget_btn_next, getActionPendingIntent(context, NotificationActionReceiver.ACTION_NEXT, 125))
+        return views
+    }
+
+    // 5. Vinyl 2x2 Widget
+    fun buildVinylRemoteViews(
+        context: Context,
+        title: String,
+        artist: String,
+        contentUriString: String?,
+        artUriString: String?,
+        isPlaying: Boolean,
+        isFavorite: Boolean,
+        isShuffle: Boolean,
+        isHeartPop: Boolean = false
+    ): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.widget_vinyl_layout)
+        val prefs = getPrefs(context)
+
+        val theme = prefs.getString(KEY_THEME, "AMOLED") ?: "AMOLED"
+        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 0.55f)
+        val showFav = prefs.getBoolean(KEY_SHOW_FAVORITE, true)
+        val showShuffleRepeat = prefs.getBoolean(KEY_SHOW_SHUFFLE_REPEAT, true)
+        val bgCoverArt = prefs.getBoolean(KEY_BG_COVER_ART, true)
+        val accentColor = readAccentColor(prefs)
+        val dynamicTheme = theme == "ALBUM_COLOR" || prefs.getBoolean(KEY_DYNAMIC_THEME, false)
+        val opacity = prefs.getFloat(KEY_OPACITY, 0.85f)
+        val blur = prefs.getFloat(KEY_BLUR, 0.55f)
+
+        val rawArtBitmap = loadRawArtworkBitmap(context, contentUriString, artUriString)
+        val hasRealCoverArt = rawArtBitmap != null
+        val circleArt = loadCircularArtworkBitmap(context, contentUriString, artUriString, 180)
+        val lightMode = isLightSurface(theme, bgCoverArt, hasRealCoverArt)
+
+        views.setImageViewBitmap(R.id.widget_art, circleArt)
+
+        views.setInt(R.id.widget_inner, "setBackgroundResource", 0)
+        val dynBg = getGeneratedBgBitmap(
+            420, 420, rawArtBitmap ?: circleArt, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur
+        )
+        views.setImageViewBitmap(R.id.widget_dynamic_bg, dynBg)
+        views.setViewVisibility(R.id.widget_dynamic_bg, View.VISIBLE)
+
+        val titleColor = if (lightMode) Color.parseColor("#141917") else Color.WHITE
+        val subtitleColor = if (lightMode) Color.parseColor("#545B58") else Color.parseColor("#B8BCC2")
+        val iconTint = if (lightMode) Color.parseColor("#1D2320") else Color.WHITE
+
+        views.setTextViewText(R.id.widget_title, title)
+        views.setTextColor(R.id.widget_title, titleColor)
+        views.setTextViewText(R.id.widget_artist, artist)
+        views.setTextColor(R.id.widget_artist, subtitleColor)
+
+        applyIconTint(views, R.id.widget_btn_prev, iconTint)
+        applyIconTint(views, R.id.widget_btn_next, iconTint)
+
+        views.setImageViewResource(R.id.widget_btn_play, 0)
+        views.setImageViewBitmap(R.id.widget_btn_play, createPlayButtonBitmap(context, isPlaying, accentColor, cornerRadiusFloat))
+
+        views.setImageViewResource(R.id.widget_btn_fav, if (isFavorite) R.drawable.ic_favorite_filled else R.drawable.ic_favorite_border)
+        applyIconTint(
+            views,
+            R.id.widget_btn_fav,
+            when {
+                isHeartPop -> Color.RED
+                isFavorite -> accentColor
+                else -> iconTint
+            }
+        )
+        views.setViewVisibility(R.id.widget_btn_fav, if (showFav) View.VISIBLE else View.GONE)
+
+        views.setImageViewResource(R.id.widget_btn_shuffle, if (isShuffle) R.drawable.ic_shuffle_on else R.drawable.ic_shuffle_off)
+        applyIconTint(views, R.id.widget_btn_shuffle, if (isShuffle) accentColor else iconTint)
+        views.setViewVisibility(R.id.widget_btn_shuffle, if (showShuffleRepeat) View.VISIBLE else View.GONE)
+
+        views.setOnClickPendingIntent(R.id.widget_root, getLaunchAppPendingIntent(context, 401))
+        views.setOnClickPendingIntent(R.id.widget_vinyl_outer, getLaunchAppPendingIntent(context, 402, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING"))
+        views.setOnClickPendingIntent(R.id.widget_btn_play, getActionPendingIntent(context, NotificationActionReceiver.ACTION_PLAY_PAUSE, 403))
+        views.setOnClickPendingIntent(R.id.widget_btn_prev, getActionPendingIntent(context, NotificationActionReceiver.ACTION_PREVIOUS, 404))
+        views.setOnClickPendingIntent(R.id.widget_btn_next, getActionPendingIntent(context, NotificationActionReceiver.ACTION_NEXT, 405))
+        views.setOnClickPendingIntent(R.id.widget_btn_shuffle, getActionPendingIntent(context, NotificationActionReceiver.ACTION_SHUFFLE, 406))
+        views.setOnClickPendingIntent(R.id.widget_btn_fav, getActionPendingIntent(context, NotificationActionReceiver.ACTION_FAVORITE, 407))
+
+        return views
+    }
+
+    // 6. Card 4x2 Widget
     fun buildCardRemoteViews(
         context: Context,
         title: String,
@@ -546,7 +762,7 @@ object SonicletWidgetManager {
         val prefs = getPrefs(context)
 
         val theme = prefs.getString(KEY_THEME, "AMOLED") ?: "AMOLED"
-        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 1.0f)
+        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 0.55f)
         val showFav = prefs.getBoolean(KEY_SHOW_FAVORITE, true)
         val showSecondary = prefs.getBoolean(KEY_SHOW_SECONDARY, true)
         val showProgress = prefs.getBoolean(KEY_SHOW_PROGRESS, true)
@@ -554,40 +770,39 @@ object SonicletWidgetManager {
         val showPrevNext = prefs.getBoolean(KEY_SHOW_PREV_NEXT, true)
         val showShuffleRepeat = prefs.getBoolean(KEY_SHOW_SHUFFLE_REPEAT, true)
         val bgCoverArt = prefs.getBoolean(KEY_BG_COVER_ART, true)
-        val hideArtThumbnail = prefs.getBoolean(KEY_HIDE_ART_THUMBNAIL, true)
-        val accentColor = try { prefs.getLong(KEY_ACCENT_COLOR, 0xFFFFFFFF).toInt() } catch (e: Exception) { try { prefs.getInt(KEY_ACCENT_COLOR, 0xFFFFFFFF.toInt()) } catch(e2: Exception) { 0xFFFFFFFF.toInt() } }
+        val accentColor = readAccentColor(prefs)
+        val dynamicTheme = theme == "ALBUM_COLOR" || prefs.getBoolean(KEY_DYNAMIC_THEME, false)
+        val opacity = prefs.getFloat(KEY_OPACITY, 0.85f)
+        val blur = prefs.getFloat(KEY_BLUR, 0.55f)
 
         val rawArtBitmap = loadRawArtworkBitmap(context, contentUriString, artUriString)
         val hasRealCoverArt = rawArtBitmap != null
-        val artBitmap = loadArtworkBitmap(context, contentUriString, artUriString, 160, 160, 20f)
+        val artBitmap = loadArtworkBitmap(context, contentUriString, artUriString, 180, 180, 18f)
+        val lightMode = isLightSurface(theme, bgCoverArt, hasRealCoverArt)
 
-        if (hasRealCoverArt && bgCoverArt && hideArtThumbnail) {
-            views.setViewVisibility(R.id.widget_art, View.GONE)
-        } else {
-            views.setImageViewBitmap(R.id.widget_art, artBitmap)
-            views.setViewVisibility(R.id.widget_art, View.VISIBLE)
-        }
+        views.setImageViewBitmap(R.id.widget_art, artBitmap)
+        views.setViewVisibility(R.id.widget_art, View.VISIBLE)
 
-        val dynamicTheme = prefs.getBoolean(KEY_DYNAMIC_THEME, false)
-        val opacity = prefs.getFloat(KEY_OPACITY, 0.95f)
-        val blur = prefs.getFloat(KEY_BLUR, 0.5f)
         views.setInt(R.id.widget_inner, "setBackgroundResource", 0)
-        val dynBg = getGeneratedBgBitmap(800, 300, rawArtBitmap ?: artBitmap, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur)
+        val dynBg = getGeneratedBgBitmap(
+            800, 340, rawArtBitmap ?: artBitmap, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur
+        )
         views.setImageViewBitmap(R.id.widget_dynamic_bg, dynBg)
         views.setViewVisibility(R.id.widget_dynamic_bg, View.VISIBLE)
 
-        // Adaptive padding
-        val density = context.resources.displayMetrics.density
-        val padH = (cornerRadiusFloat * 12 * density).toInt() + (8 * density).toInt()
-        val padV = (8 * density).toInt()
-        views.setViewPadding(R.id.widget_inner, padH, padV, padH, padV)
+        val titleColor = if (lightMode) Color.parseColor("#141917") else Color.WHITE
+        val subtitleColor = if (lightMode) Color.parseColor("#545B58") else Color.parseColor("#C2C6CC")
+        val mutedColor = if (lightMode) Color.parseColor("#717875") else Color.parseColor("#92979E")
+        val iconTint = if (lightMode) Color.parseColor("#1D2320") else Color.WHITE
 
         views.setTextViewText(R.id.widget_title, title)
+        views.setTextColor(R.id.widget_title, titleColor)
         views.setTextViewText(R.id.widget_artist, artist)
+        views.setTextColor(R.id.widget_artist, subtitleColor)
         views.setTextViewText(R.id.widget_subtitle, album)
-        views.setViewVisibility(R.id.widget_subtitle, if (showSecondary) View.VISIBLE else View.GONE)
+        views.setTextColor(R.id.widget_subtitle, mutedColor)
+        views.setViewVisibility(R.id.widget_subtitle, if (showSecondary && album.isNotBlank()) View.VISIBLE else View.GONE)
 
-        // Progress & Interactive Bar Seeking
         if (showProgress && durationMs > 0) {
             views.setViewVisibility(R.id.widget_progress_container, View.VISIBLE)
             val progressPercent = ((positionMs.toFloat() / durationMs.toFloat()) * 100).toInt().coerceIn(0, 100)
@@ -598,9 +813,13 @@ object SonicletWidgetManager {
             views.setViewVisibility(R.id.widget_progress_container, View.GONE)
         }
 
-        // Controls
         views.setImageViewResource(R.id.widget_btn_play, 0)
         views.setImageViewBitmap(R.id.widget_btn_play, createPlayButtonBitmap(context, isPlaying, accentColor, cornerRadiusFloat))
+
+        applyIconTint(views, R.id.widget_btn_prev, iconTint)
+        applyIconTint(views, R.id.widget_btn_next, iconTint)
+        applyIconTint(views, R.id.widget_btn_rewind, iconTint)
+        applyIconTint(views, R.id.widget_btn_fast_forward, iconTint)
 
         views.setViewVisibility(R.id.widget_btn_prev, if (showPrevNext) View.VISIBLE else View.GONE)
         views.setViewVisibility(R.id.widget_btn_next, if (showPrevNext) View.VISIBLE else View.GONE)
@@ -610,14 +829,20 @@ object SonicletWidgetManager {
         views.setViewVisibility(R.id.widget_btn_repeat, if (showShuffleRepeat) View.VISIBLE else View.GONE)
 
         views.setImageViewResource(R.id.widget_btn_fav, if (isFavorite) R.drawable.ic_favorite_filled else R.drawable.ic_favorite_border)
-        if (isHeartPop) {
-            views.setInt(R.id.widget_btn_fav, "setColorFilter", Color.RED)
-        } else {
-            views.setInt(R.id.widget_btn_fav, "setColorFilter", 0)
-        }
+        applyIconTint(
+            views,
+            R.id.widget_btn_fav,
+            when {
+                isHeartPop -> Color.RED
+                isFavorite -> accentColor
+                else -> iconTint
+            }
+        )
         views.setViewVisibility(R.id.widget_btn_fav, if (showFav) View.VISIBLE else View.GONE)
 
         views.setImageViewResource(R.id.widget_btn_shuffle, if (isShuffle) R.drawable.ic_shuffle_on else R.drawable.ic_shuffle_off)
+        applyIconTint(views, R.id.widget_btn_shuffle, if (isShuffle) accentColor else iconTint)
+
         views.setImageViewResource(
             R.id.widget_btn_repeat,
             when (repeatMode) {
@@ -626,8 +851,8 @@ object SonicletWidgetManager {
                 else -> R.drawable.ic_repeat_off
             }
         )
+        applyIconTint(views, R.id.widget_btn_repeat, if (repeatMode != RepeatMode.OFF) accentColor else iconTint)
 
-        // Actions
         views.setOnClickPendingIntent(R.id.widget_root, getLaunchAppPendingIntent(context, 301))
         views.setOnClickPendingIntent(R.id.widget_art, getLaunchAppPendingIntent(context, 302, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING"))
         views.setOnClickPendingIntent(R.id.widget_info_container, getLaunchAppPendingIntent(context, 303, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING"))
@@ -643,71 +868,7 @@ object SonicletWidgetManager {
         return views
     }
 
-    // Builder 3: Vinyl Retro Widget RemoteViews
-    fun buildVinylRemoteViews(
-        context: Context,
-        title: String,
-        artist: String,
-        contentUriString: String?,
-        artUriString: String?,
-        isPlaying: Boolean,
-        isFavorite: Boolean,
-        isShuffle: Boolean,
-        isHeartPop: Boolean = false
-    ): RemoteViews {
-        val views = RemoteViews(context.packageName, R.layout.widget_vinyl_layout)
-        val prefs = getPrefs(context)
-
-        val theme = prefs.getString(KEY_THEME, "AMOLED") ?: "AMOLED"
-        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 1.0f)
-        val showFav = prefs.getBoolean(KEY_SHOW_FAVORITE, true)
-        val showShuffleRepeat = prefs.getBoolean(KEY_SHOW_SHUFFLE_REPEAT, true)
-        val bgCoverArt = prefs.getBoolean(KEY_BG_COVER_ART, true)
-        val accentColor = try { prefs.getLong(KEY_ACCENT_COLOR, 0xFFFFFFFF).toInt() } catch (e: Exception) { try { prefs.getInt(KEY_ACCENT_COLOR, 0xFFFFFFFF.toInt()) } catch(e2: Exception) { 0xFFFFFFFF.toInt() } }
-
-        val rawArtBitmap = loadRawArtworkBitmap(context, contentUriString, artUriString)
-        val hasRealCoverArt = rawArtBitmap != null
-        val circleArt = loadCircularArtworkBitmap(context, contentUriString, artUriString, 160)
-        views.setImageViewBitmap(R.id.widget_art, circleArt)
-
-        val dynamicTheme = prefs.getBoolean(KEY_DYNAMIC_THEME, false)
-        val opacity = prefs.getFloat(KEY_OPACITY, 0.95f)
-        val blur = prefs.getFloat(KEY_BLUR, 0.5f)
-        views.setInt(R.id.widget_inner, "setBackgroundResource", 0)
-        val dynBg = getGeneratedBgBitmap(800, 300, rawArtBitmap ?: circleArt, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur)
-        views.setImageViewBitmap(R.id.widget_dynamic_bg, dynBg)
-        views.setViewVisibility(R.id.widget_dynamic_bg, View.VISIBLE)
-
-        views.setTextViewText(R.id.widget_title, title)
-        views.setTextViewText(R.id.widget_artist, artist)
-
-        // Controls
-        views.setImageViewResource(R.id.widget_btn_play, 0)
-        views.setImageViewBitmap(R.id.widget_btn_play, createPlayButtonBitmap(context, isPlaying, accentColor, cornerRadiusFloat))
-
-        views.setImageViewResource(R.id.widget_btn_fav, if (isFavorite) R.drawable.ic_favorite_filled else R.drawable.ic_favorite_border)
-        if (isHeartPop) {
-            views.setInt(R.id.widget_btn_fav, "setColorFilter", Color.RED)
-        } else {
-            views.setInt(R.id.widget_btn_fav, "setColorFilter", 0)
-        }
-        views.setViewVisibility(R.id.widget_btn_fav, if (showFav) View.VISIBLE else View.GONE)
-        views.setImageViewResource(R.id.widget_btn_shuffle, if (isShuffle) R.drawable.ic_shuffle_on else R.drawable.ic_shuffle_off)
-        views.setViewVisibility(R.id.widget_btn_shuffle, if (showShuffleRepeat) View.VISIBLE else View.GONE)
-
-        // Actions
-        views.setOnClickPendingIntent(R.id.widget_root, getLaunchAppPendingIntent(context, 401))
-        views.setOnClickPendingIntent(R.id.widget_vinyl_outer, getLaunchAppPendingIntent(context, 402, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING"))
-        views.setOnClickPendingIntent(R.id.widget_btn_play, getActionPendingIntent(context, NotificationActionReceiver.ACTION_PLAY_PAUSE, 403))
-        views.setOnClickPendingIntent(R.id.widget_btn_prev, getActionPendingIntent(context, NotificationActionReceiver.ACTION_PREVIOUS, 404))
-        views.setOnClickPendingIntent(R.id.widget_btn_next, getActionPendingIntent(context, NotificationActionReceiver.ACTION_NEXT, 405))
-        views.setOnClickPendingIntent(R.id.widget_btn_shuffle, getActionPendingIntent(context, NotificationActionReceiver.ACTION_SHUFFLE, 406))
-        views.setOnClickPendingIntent(R.id.widget_btn_fav, getActionPendingIntent(context, NotificationActionReceiver.ACTION_FAVORITE, 407))
-
-        return views
-    }
-
-    // Builder 4: Pro Deck RemoteViews
+    // 7. Pro 4x3 Widget
     fun buildProRemoteViews(
         context: Context,
         title: String,
@@ -715,68 +876,75 @@ object SonicletWidgetManager {
         album: String,
         contentUriString: String?,
         artUriString: String?,
-        durationMs: Long,
-        positionMs: Long,
-        isPlaying: Boolean,
-        isFavorite: Boolean,
-        repeatMode: RepeatMode,
-        isShuffle: Boolean,
+        filePath: String = "",
+        durationMs: Long = 0L,
+        positionMs: Long = 0L,
+        isPlaying: Boolean = false,
+        isFavorite: Boolean = false,
+        repeatMode: RepeatMode = RepeatMode.OFF,
+        isShuffle: Boolean = false,
         isHeartPop: Boolean = false
     ): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_pro_layout)
         val prefs = getPrefs(context)
 
         val theme = prefs.getString(KEY_THEME, "GLASS") ?: "GLASS"
-        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 1.0f)
+        val cornerRadiusFloat = prefs.getFloat(KEY_CORNER_RADIUS_FLOAT, 0.55f)
         val showFav = prefs.getBoolean(KEY_SHOW_FAVORITE, true)
         val showSecondary = prefs.getBoolean(KEY_SHOW_SECONDARY, true)
         val showProgress = prefs.getBoolean(KEY_SHOW_PROGRESS, true)
+        val showQualityTag = prefs.getBoolean(KEY_SHOW_QUALITY_TAG, true)
         val showSeekButtons = prefs.getBoolean(KEY_SHOW_SEEK_BUTTONS, true)
         val showPrevNext = prefs.getBoolean(KEY_SHOW_PREV_NEXT, true)
         val showShuffleRepeat = prefs.getBoolean(KEY_SHOW_SHUFFLE_REPEAT, true)
         val bgCoverArt = prefs.getBoolean(KEY_BG_COVER_ART, true)
-        val hideArtThumbnail = prefs.getBoolean(KEY_HIDE_ART_THUMBNAIL, true)
-        val accentColor = try { prefs.getLong(KEY_ACCENT_COLOR, 0xFFFFFFFF).toInt() } catch (e: Exception) { try { prefs.getInt(KEY_ACCENT_COLOR, 0xFFFFFFFF.toInt()) } catch(e2: Exception) { 0xFFFFFFFF.toInt() } }
+        val accentColor = readAccentColor(prefs)
+        val dynamicTheme = theme == "ALBUM_COLOR" || prefs.getBoolean(KEY_DYNAMIC_THEME, false)
+        val opacity = prefs.getFloat(KEY_OPACITY, 0.85f)
+        val blur = prefs.getFloat(KEY_BLUR, 0.55f)
 
         val rawArtBitmap = loadRawArtworkBitmap(context, contentUriString, artUriString)
         val hasRealCoverArt = rawArtBitmap != null
-        val artBitmap = loadArtworkBitmap(context, contentUriString, artUriString, 200, 200, 24f)
+        val artBitmap = loadArtworkBitmap(context, contentUriString, artUriString, 220, 220, 20f)
+        val lightMode = isLightSurface(theme, bgCoverArt, hasRealCoverArt)
 
-        if (hasRealCoverArt && bgCoverArt && hideArtThumbnail) {
-            views.setViewVisibility(R.id.widget_art, View.GONE)
-        } else {
-            views.setImageViewBitmap(R.id.widget_art, artBitmap)
-            views.setViewVisibility(R.id.widget_art, View.VISIBLE)
-        }
+        views.setImageViewBitmap(R.id.widget_art, artBitmap)
+        views.setViewVisibility(R.id.widget_art, View.VISIBLE)
 
-        val dynamicTheme = prefs.getBoolean(KEY_DYNAMIC_THEME, false)
-        val opacity = prefs.getFloat(KEY_OPACITY, 0.95f)
-        val blur = prefs.getFloat(KEY_BLUR, 0.5f)
         views.setInt(R.id.widget_inner, "setBackgroundResource", 0)
-        val dynBg = getGeneratedBgBitmap(800, 500, rawArtBitmap ?: artBitmap, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur)
+        val dynBg = getGeneratedBgBitmap(
+            800, 520, rawArtBitmap ?: artBitmap, hasRealCoverArt, bgCoverArt, dynamicTheme, theme, cornerRadiusFloat, opacity, accentColor, blur
+        )
         views.setImageViewBitmap(R.id.widget_dynamic_bg, dynBg)
         views.setViewVisibility(R.id.widget_dynamic_bg, View.VISIBLE)
 
-        // Adaptive padding
-        val density = context.resources.displayMetrics.density
-        val padH = (cornerRadiusFloat * 12 * density).toInt() + (8 * density).toInt()
-        val padV = (8 * density).toInt()
-        views.setViewPadding(R.id.widget_inner, padH, padV, padH, padV)
+        val titleColor = if (lightMode) Color.parseColor("#141917") else Color.WHITE
+        val subtitleColor = if (lightMode) Color.parseColor("#545B58") else Color.parseColor("#C2C6CC")
+        val mutedColor = if (lightMode) Color.parseColor("#717875") else Color.parseColor("#92979E")
+        val iconTint = if (lightMode) Color.parseColor("#1D2320") else Color.WHITE
 
         views.setTextColor(R.id.widget_brand_label, accentColor)
-        views.setTextViewText(R.id.widget_title, title)
-        views.setTextViewText(R.id.widget_artist, artist)
-        views.setTextViewText(R.id.widget_subtitle, album)
-        views.setViewVisibility(R.id.widget_subtitle, if (showSecondary) View.VISIBLE else View.GONE)
+        views.setTextViewText(R.id.widget_audio_badge, detectQualityBadge(filePath, contentUriString))
+        views.setTextColor(R.id.widget_audio_badge, titleColor)
+        views.setViewVisibility(R.id.widget_audio_badge, if (showQualityTag) View.VISIBLE else View.GONE)
 
-        // Progress, Time & Interactive Seeking
+        views.setTextViewText(R.id.widget_title, title)
+        views.setTextColor(R.id.widget_title, titleColor)
+        views.setTextViewText(R.id.widget_artist, artist)
+        views.setTextColor(R.id.widget_artist, subtitleColor)
+        views.setTextViewText(R.id.widget_subtitle, album)
+        views.setTextColor(R.id.widget_subtitle, mutedColor)
+        views.setViewVisibility(R.id.widget_subtitle, if (showSecondary && album.isNotBlank()) View.VISIBLE else View.GONE)
+
         if (showProgress && durationMs > 0) {
             views.setViewVisibility(R.id.widget_progress_section, View.VISIBLE)
             val progressPercent = ((positionMs.toFloat() / durationMs.toFloat()) * 100).toInt().coerceIn(0, 100)
-            val waveformBitmap = generateWaveformBitmap(400, 60, progressPercent, accentColor)
+            val waveformBitmap = generateWaveformBitmap(420, 56, progressPercent, accentColor)
             views.setImageViewBitmap(R.id.widget_waveform, waveformBitmap)
             views.setTextViewText(R.id.widget_time_elapsed, formatTime(positionMs))
             views.setTextViewText(R.id.widget_time_total, formatTime(durationMs))
+            views.setTextColor(R.id.widget_time_elapsed, mutedColor)
+            views.setTextColor(R.id.widget_time_total, mutedColor)
 
             views.setOnClickPendingIntent(R.id.widget_bar_seek_backward, getActionPendingIntent(context, NotificationActionReceiver.ACTION_REWIND, 518))
             views.setOnClickPendingIntent(R.id.widget_bar_seek_forward, getActionPendingIntent(context, NotificationActionReceiver.ACTION_FAST_FORWARD, 519))
@@ -786,9 +954,15 @@ object SonicletWidgetManager {
             views.setViewVisibility(R.id.widget_progress_section, View.GONE)
         }
 
-        // Controls
         views.setImageViewResource(R.id.widget_btn_play, 0)
         views.setImageViewBitmap(R.id.widget_btn_play, createPlayButtonBitmap(context, isPlaying, accentColor, cornerRadiusFloat))
+
+        applyIconTint(views, R.id.widget_btn_queue, iconTint)
+        applyIconTint(views, R.id.widget_btn_playlist, iconTint)
+        applyIconTint(views, R.id.widget_btn_prev, iconTint)
+        applyIconTint(views, R.id.widget_btn_next, iconTint)
+        applyIconTint(views, R.id.widget_btn_rewind, iconTint)
+        applyIconTint(views, R.id.widget_btn_fast_forward, iconTint)
 
         views.setViewVisibility(R.id.widget_btn_prev, if (showPrevNext) View.VISIBLE else View.GONE)
         views.setViewVisibility(R.id.widget_btn_next, if (showPrevNext) View.VISIBLE else View.GONE)
@@ -798,13 +972,20 @@ object SonicletWidgetManager {
         views.setViewVisibility(R.id.widget_btn_repeat, if (showShuffleRepeat) View.VISIBLE else View.GONE)
 
         views.setImageViewResource(R.id.widget_btn_fav, if (isFavorite) R.drawable.ic_favorite_filled else R.drawable.ic_favorite_border)
-        if (isHeartPop) {
-            views.setInt(R.id.widget_btn_fav, "setColorFilter", Color.RED)
-        } else {
-            views.setInt(R.id.widget_btn_fav, "setColorFilter", 0)
-        }
+        applyIconTint(
+            views,
+            R.id.widget_btn_fav,
+            when {
+                isHeartPop -> Color.RED
+                isFavorite -> accentColor
+                else -> iconTint
+            }
+        )
         views.setViewVisibility(R.id.widget_btn_fav, if (showFav) View.VISIBLE else View.GONE)
+
         views.setImageViewResource(R.id.widget_btn_shuffle, if (isShuffle) R.drawable.ic_shuffle_on else R.drawable.ic_shuffle_off)
+        applyIconTint(views, R.id.widget_btn_shuffle, if (isShuffle) accentColor else iconTint)
+
         views.setImageViewResource(
             R.id.widget_btn_repeat,
             when (repeatMode) {
@@ -813,8 +994,8 @@ object SonicletWidgetManager {
                 else -> R.drawable.ic_repeat_off
             }
         )
+        applyIconTint(views, R.id.widget_btn_repeat, if (repeatMode != RepeatMode.OFF) accentColor else iconTint)
 
-        // Actions
         views.setOnClickPendingIntent(R.id.widget_root, getLaunchAppPendingIntent(context, 501))
         views.setOnClickPendingIntent(R.id.widget_center_section, getLaunchAppPendingIntent(context, 502, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "NOW_PLAYING"))
         views.setOnClickPendingIntent(R.id.widget_btn_queue, getLaunchAppPendingIntent(context, 503, actionStr = "com.kexora.soniclet.ACTION_OPEN_TAB", targetTab = "QUEUE"))
@@ -831,57 +1012,48 @@ object SonicletWidgetManager {
         return views
     }
 
-    
     private fun generateWaveformBitmap(width: Int, height: Int, progressPercent: Int, accentColor: Int): Bitmap {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        val paintPlayed = Paint(Paint.ANTI_ALIAS_FLAG).apply { 
-            color = accentColor 
+        val paintPlayed = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = accentColor
             strokeWidth = 6f
             strokeCap = Paint.Cap.ROUND
         }
-        val paintUnplayed = Paint(Paint.ANTI_ALIAS_FLAG).apply { 
-            color = Color.argb(80, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
+        val paintUnplayed = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(72, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
             strokeWidth = 6f
             strokeCap = Paint.Cap.ROUND
         }
-        
+
         val barCount = 40
         val spacing = width / barCount.toFloat()
-        
-        // Pseudo-random waveform based on index
         val heights = floatArrayOf(
-            0.2f, 0.4f, 0.3f, 0.6f, 0.8f, 1.0f, 0.7f, 0.5f, 0.4f, 0.5f,
-            0.9f, 0.6f, 0.3f, 0.4f, 0.7f, 0.9f, 0.8f, 0.5f, 0.3f, 0.2f,
-            0.4f, 0.6f, 0.5f, 0.8f, 1.0f, 0.7f, 0.4f, 0.3f, 0.5f, 0.7f,
-            0.9f, 0.6f, 0.4f, 0.3f, 0.5f, 0.8f, 0.6f, 0.4f, 0.2f, 0.1f
+            0.25f, 0.45f, 0.35f, 0.65f, 0.85f, 1.0f, 0.72f, 0.52f, 0.42f, 0.55f,
+            0.90f, 0.62f, 0.35f, 0.45f, 0.72f, 0.92f, 0.80f, 0.52f, 0.34f, 0.25f,
+            0.44f, 0.64f, 0.54f, 0.82f, 1.0f, 0.72f, 0.42f, 0.34f, 0.52f, 0.72f,
+            0.90f, 0.62f, 0.42f, 0.34f, 0.52f, 0.82f, 0.62f, 0.42f, 0.26f, 0.18f
         )
-        
+
         val progressIndex = (progressPercent / 100f * barCount).toInt()
-        
         for (i in 0 until barCount) {
-            val h = heights[i % heights.size] * height
+            val h = heights[i % heights.size] * (height - 8f)
             val x = i * spacing + spacing / 2f
             val y1 = (height - h) / 2f
             val y2 = y1 + h
-            
-            val paint = if (i < progressIndex) paintPlayed else paintUnplayed
-            canvas.drawLine(x, y1, x, y2, paint)
+            canvas.drawLine(x, y1, x, y2, if (i < progressIndex) paintPlayed else paintUnplayed)
         }
-        
         return bitmap
     }
 
-    
     fun blurBitmap(source: Bitmap, blurPercent: Float): Bitmap {
         if (blurPercent <= 0.02f) return source
         return try {
             val radius = (blurPercent * 20f).toInt().coerceIn(1, 25)
-            // Downsample to max 160x160 for optimal blur speed and smoothness
             val maxDim = 160
-            val scale = Math.min(1.0f, maxDim.toFloat() / Math.max(source.width, source.height).toFloat())
-            val targetW = Math.max(16, (source.width * scale).toInt())
-            val targetH = Math.max(16, (source.height * scale).toInt())
+            val scale = minOf(1.0f, maxDim.toFloat() / maxOf(source.width, source.height).toFloat())
+            val targetW = maxOf(16, (source.width * scale).toInt())
+            val targetH = maxOf(16, (source.height * scale).toInt())
             val smallBitmap = if (scale < 1.0f) {
                 Bitmap.createScaledBitmap(source, targetW, targetH, true)
             } else {
@@ -892,7 +1064,7 @@ object SonicletWidgetManager {
                 smallBitmap.recycle()
             }
             blurred
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             source
         }
     }
@@ -907,7 +1079,6 @@ object SonicletWidgetManager {
         val r = radius.coerceIn(1, 25)
         val div = 2 * r + 1
 
-        // Horizontal pass
         for (y in 0 until h) {
             val rowOffset = y * w
             var rSum = 0
@@ -926,15 +1097,12 @@ object SonicletWidgetManager {
 
             for (x in 0 until w) {
                 out[rowOffset + x] = ((aSum / div) shl 24) or
-                        ((rSum / div) shl 16) or
-                        ((gSum / div) shl 8) or
-                        (bSum / div)
+                    ((rSum / div) shl 16) or
+                    ((gSum / div) shl 8) or
+                    (bSum / div)
 
-                val xOut = (x - r).coerceIn(0, w - 1)
-                val xIn = (x + r + 1).coerceIn(0, w - 1)
-                val cOut = pixels[rowOffset + xOut]
-                val cIn = pixels[rowOffset + xIn]
-
+                val cOut = pixels[rowOffset + (x - r).coerceIn(0, w - 1)]
+                val cIn = pixels[rowOffset + (x + r + 1).coerceIn(0, w - 1)]
                 aSum += (cIn ushr 24) - (cOut ushr 24)
                 rSum += ((cIn ushr 16) and 0xFF) - ((cOut ushr 16) and 0xFF)
                 gSum += ((cIn ushr 8) and 0xFF) - ((cOut ushr 8) and 0xFF)
@@ -942,7 +1110,6 @@ object SonicletWidgetManager {
             }
         }
 
-        // Vertical pass
         for (x in 0 until w) {
             var rSum = 0
             var gSum = 0
@@ -961,15 +1128,12 @@ object SonicletWidgetManager {
             for (y in 0 until h) {
                 val idx = y * w + x
                 pixels[idx] = ((aSum / div) shl 24) or
-                        ((rSum / div) shl 16) or
-                        ((gSum / div) shl 8) or
-                        (bSum / div)
+                    ((rSum / div) shl 16) or
+                    ((gSum / div) shl 8) or
+                    (bSum / div)
 
-                val yOut = (y - r).coerceIn(0, h - 1)
-                val yIn = (y + r + 1).coerceIn(0, h - 1)
-                val cOut = out[yOut * w + x]
-                val cIn = out[yIn * w + x]
-
+                val cOut = out[(y - r).coerceIn(0, h - 1) * w + x]
+                val cIn = out[(y + r + 1).coerceIn(0, h - 1) * w + x]
                 aSum += (cIn ushr 24) - (cOut ushr 24)
                 rSum += ((cIn ushr 16) and 0xFF) - ((cOut ushr 16) and 0xFF)
                 gSum += ((cIn ushr 8) and 0xFF) - ((cOut ushr 8) and 0xFF)
@@ -993,138 +1157,101 @@ object SonicletWidgetManager {
         cornerRadiusFloat: Float,
         opacity: Float,
         accentColor: Int,
-        blurPercent: Float = 0.5f
+        blurPercent: Float = 0.55f
     ): Bitmap {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        val maxRadius = Math.min(width, height) / 2f
-        val radius = cornerRadiusFloat * maxRadius
+        val maxRadius = minOf(width, height) / 2f
+        val radius = cornerRadiusFloat.coerceIn(0f, 1f) * maxRadius
         val bounds = RectF(0f, 0f, width.toFloat(), height.toFloat())
+        val alpha = opacity.coerceIn(0.20f, 1f)
 
-        val path = android.graphics.Path().apply {
-            addRoundRect(bounds, radius, radius, android.graphics.Path.Direction.CW)
+        val clipPath = Path().apply {
+            addRoundRect(bounds, radius, radius, Path.Direction.CW)
         }
         canvas.save()
-        canvas.clipPath(path)
+        canvas.clipPath(clipPath)
 
-        // Solid dark base to prevent launcher wallpaper & background icons from bleeding through
-        val solidBasePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb((opacity.coerceIn(0.85f, 1.0f) * 255).toInt(), 16, 16, 20)
-        }
-        canvas.drawRect(bounds, solidBasePaint)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val isLight = isLightSurface(theme, bgCoverArtEnabled, hasRealCoverArt)
 
-        if (bgCoverArtEnabled && hasRealCoverArt && artBitmap != null && width > 0 && height > 0) {
-            val bitmapToDraw = if (blurPercent > 0.02f) {
-                blurBitmap(artBitmap, blurPercent)
-            } else {
-                artBitmap
-            }
-            // Draw album art as background
+        if (bgCoverArtEnabled && hasRealCoverArt && artBitmap != null) {
+            val bitmapToDraw = if (blurPercent > 0.02f) blurBitmap(artBitmap, blurPercent) else artBitmap
             val artPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-            val srcW = bitmapToDraw.width.toFloat()
-            val srcH = bitmapToDraw.height.toFloat()
-            val scale = Math.max(width / srcW, height / srcH)
+            val srcW = bitmapToDraw.width.toFloat().coerceAtLeast(1f)
+            val srcH = bitmapToDraw.height.toFloat().coerceAtLeast(1f)
+            val scale = maxOf(width / srcW, height / srcH)
             val scaledW = srcW * scale
             val scaledH = srcH * scale
             val dx = (width - scaledW) / 2f
             val dy = (height - scaledH) / 2f
-            val destRect = RectF(dx, dy, dx + scaledW, dy + scaledH)
-            canvas.drawBitmap(bitmapToDraw, null, destRect, artPaint)
-            if (bitmapToDraw != artBitmap) {
-                bitmapToDraw.recycle()
-            }
+            canvas.drawBitmap(bitmapToDraw, null, RectF(dx, dy, dx + scaledW, dy + scaledH), artPaint)
+            if (bitmapToDraw != artBitmap) bitmapToDraw.recycle()
 
-            // Darkening contrast scrim overlay
-            val scrimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = android.graphics.LinearGradient(
-                    0f, 0f, 0f, height.toFloat(),
-                    Color.argb(((0.45f + (1f - opacity) * 0.4f).coerceIn(0.25f, 0.95f) * 255).toInt(), 12, 12, 16),
-                    Color.argb(((0.75f + (1f - opacity) * 0.2f).coerceIn(0.45f, 0.98f) * 255).toInt(), 6, 6, 10),
-                    android.graphics.Shader.TileMode.CLAMP
-                )
-            }
-            canvas.drawRect(bounds, scrimPaint)
-
-            // Subtle accent tint glow
-            val accentScrim = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.argb(16, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
-            }
-            canvas.drawRect(bounds, accentScrim)
+            val topScrimAlpha = ((0.35f + alpha * 0.45f).coerceIn(0.35f, 0.88f) * 255).toInt()
+            val bottomScrimAlpha = ((0.55f + alpha * 0.38f).coerceIn(0.55f, 0.94f) * 255).toInt()
+            paint.shader = LinearGradient(
+                0f, 0f, 0f, height.toFloat(),
+                Color.argb(topScrimAlpha, 8, 12, 10),
+                Color.argb(bottomScrimAlpha, 6, 8, 7),
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawRect(bounds, paint)
+        } else if ((theme == "ALBUM_COLOR" || dynamicTheme) && artBitmap != null) {
+            val palette = Palette.from(artBitmap).generate()
+            val dominant = palette.getDominantColor(Color.parseColor("#16231D"))
+            val hsv = FloatArray(3)
+            Color.colorToHSV(dominant, hsv)
+            hsv[2] = (hsv[2] * 0.36f).coerceIn(0.10f, 0.32f)
+            val darkDom = Color.HSVToColor(hsv)
+            val deeper = ColorUtils.blendARGB(darkDom, Color.BLACK, 0.45f)
+            paint.shader = LinearGradient(
+                0f, 0f, width.toFloat(), height.toFloat(),
+                ColorUtils.setAlphaComponent(darkDom, (alpha * 255).toInt()),
+                ColorUtils.setAlphaComponent(deeper, (alpha * 255).toInt()),
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawRect(bounds, paint)
         } else {
-            // Normal theme fallback ("agar coverart nahi hoga to normal react rahega")
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-            if (dynamicTheme && artBitmap != null && width > 0 && height > 0) {
-                val palette = androidx.palette.graphics.Palette.from(artBitmap).generate()
-                var domColor = palette.getDominantColor(Color.DKGRAY)
-                val hsv = FloatArray(3)
-                Color.colorToHSV(domColor, hsv)
-                hsv[2] *= 0.4f // darken value
-                domColor = Color.HSVToColor(hsv)
-                paint.color = Color.argb(
-                    (opacity * 255).toInt(),
-                    Color.red(domColor),
-                    Color.green(domColor),
-                    Color.blue(domColor)
-                )
-                canvas.drawRect(bounds, paint)
-            } else {
-                val alpha = opacity.coerceIn(0f, 1f)
-                when (theme) {
-                    "GLASS" -> {
-                        paint.shader = android.graphics.LinearGradient(
-                            0f, 0f, 0f, height.toFloat(),
-                            Color.argb((alpha * 204).toInt(), 26, 27, 36),
-                            Color.argb((alpha * 204).toInt(), 14, 15, 20),
-                            android.graphics.Shader.TileMode.CLAMP
-                        )
-                    }
-                    "FROSTED" -> {
-                        paint.shader = android.graphics.LinearGradient(
-                            0f, 0f, 0f, height.toFloat(),
-                            Color.argb((alpha * 238).toInt(), 34, 36, 48),
-                            Color.argb((alpha * 238).toInt(), 18, 19, 26),
-                            android.graphics.Shader.TileMode.CLAMP
-                        )
-                    }
-                    "ACCENT" -> {
-                        paint.shader = android.graphics.LinearGradient(
-                            0f, 0f, 0f, height.toFloat(),
-                            Color.argb((alpha * 89).toInt(), Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
-                            Color.argb((alpha * 255).toInt(), 8, 8, 12),
-                            android.graphics.Shader.TileMode.CLAMP
-                        )
-                    }
-                    "GRADIENT" -> {
-                        paint.shader = android.graphics.LinearGradient(
-                            0f, 0f, width.toFloat(), height.toFloat(),
-                            Color.argb((alpha * 255).toInt(), 40, 20, 56),
-                            Color.argb((alpha * 255).toInt(), 10, 16, 36),
-                            android.graphics.Shader.TileMode.CLAMP
-                        )
-                    }
-                    "TRANSPARENT" -> {
-                        paint.color = Color.TRANSPARENT
-                    }
-                    else -> { // AMOLED
-                        paint.shader = android.graphics.LinearGradient(
-                            0f, 0f, 0f, height.toFloat(),
-                            Color.argb((alpha * 255).toInt(), 8, 8, 12),
-                            Color.argb((alpha * 255).toInt(), 8, 8, 12),
-                            android.graphics.Shader.TileMode.CLAMP
-                        )
-                    }
+            when (theme) {
+                "LIGHT_GLASS" -> {
+                    paint.shader = LinearGradient(
+                        0f, 0f, 0f, height.toFloat(),
+                        Color.argb((alpha * 242).toInt(), 246, 248, 247),
+                        Color.argb((alpha * 242).toInt(), 230, 236, 233),
+                        Shader.TileMode.CLAMP
+                    )
                 }
-                canvas.drawRect(bounds, paint)
+                "GLASS", "FROSTED" -> {
+                    paint.shader = LinearGradient(
+                        0f, 0f, 0f, height.toFloat(),
+                        Color.argb((alpha * 218).toInt(), 24, 30, 28),
+                        Color.argb((alpha * 228).toInt(), 12, 16, 15),
+                        Shader.TileMode.CLAMP
+                    )
+                }
+                "ACCENT" -> {
+                    paint.shader = LinearGradient(
+                        0f, 0f, width.toFloat(), height.toFloat(),
+                        Color.argb((alpha * 110).toInt(), Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
+                        Color.argb((alpha * 248).toInt(), 8, 11, 10),
+                        Shader.TileMode.CLAMP
+                    )
+                }
+                else -> { // AMOLED (Pure Black)
+                    paint.color = Color.argb((alpha * 255).toInt(), 7, 10, 9)
+                }
             }
+            canvas.drawRect(bounds, paint)
         }
 
-        // Clean subtle border
+        // Subtle crisp outline
         val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 2f
-            color = Color.argb(28, 255, 255, 255)
+            color = if (isLight) Color.argb(30, 0, 0, 0) else Color.argb(26, 255, 255, 255)
         }
-        canvas.drawRect(bounds, borderPaint)
+        canvas.drawRoundRect(bounds, radius, radius, borderPaint)
 
         canvas.restore()
         return bitmap
@@ -1138,34 +1265,32 @@ object SonicletWidgetManager {
         if (artUriString != null) {
             try {
                 val uri = Uri.parse(artUriString)
-                val inputStream = context.contentResolver.openInputStream(uri)
-                if (inputStream != null) {
-                    val bmp = inputStream.use { android.graphics.BitmapFactory.decodeStream(it) }
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val bmp = BitmapFactory.decodeStream(stream)
                     if (bmp != null) return bmp
                 }
-            } catch (e: Exception) {
-                // fallback
+            } catch (_: Exception) {
+                // fallback to embedded art
             }
         }
 
         if (contentUriString != null) {
+            val retriever = MediaMetadataRetriever()
             try {
-                val retriever = MediaMetadataRetriever()
                 retriever.setDataSource(context, Uri.parse(contentUriString))
                 val picture = retriever.embeddedPicture
-                retriever.release()
                 if (picture != null) {
-                    val bmp = android.graphics.BitmapFactory.decodeByteArray(picture, 0, picture.size)
-                    if (bmp != null) return bmp
+                    return BitmapFactory.decodeByteArray(picture, 0, picture.size)
                 }
-            } catch (e: Exception) {
-                // fallback
+            } catch (_: Exception) {
+                // ignore
+            } finally {
+                try { retriever.release() } catch (_: Exception) {}
             }
         }
         return null
     }
 
-    // Artwork Bitmap loader with rounded corners
     private fun loadArtworkBitmap(
         context: Context,
         contentUriString: String?,
@@ -1174,12 +1299,8 @@ object SonicletWidgetManager {
         height: Int,
         cornerRadiusDp: Float
     ): Bitmap {
-        var rawBitmap = loadRawArtworkBitmap(context, contentUriString, artUriString)
-
-        if (rawBitmap == null) {
-            rawBitmap = createFallbackArtworkBitmap(context, width, height)
-        }
-
+        val rawBitmap = loadRawArtworkBitmap(context, contentUriString, artUriString)
+            ?: createFallbackArtworkBitmap(context, width, height)
         return getRoundedCornerBitmap(rawBitmap, width, height, cornerRadiusDp)
     }
 
@@ -1189,30 +1310,32 @@ object SonicletWidgetManager {
         artUriString: String?,
         size: Int
     ): Bitmap {
-        val rounded = loadArtworkBitmap(context, contentUriString, artUriString, size, size, size / 2f)
-        return rounded
+        return loadArtworkBitmap(context, contentUriString, artUriString, size, size, size / 2f)
     }
 
     private fun getRoundedCornerBitmap(bitmap: Bitmap, width: Int, height: Int, radiusDp: Float): Bitmap {
         val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
-        val paint = Paint().apply {
-            isAntiAlias = true
-            isFilterBitmap = true
-        }
-
-        val density = 2.0f
-        val radiusPx = radiusDp * density
+        val radiusPx = (radiusDp * 2.0f).coerceAtMost(minOf(width, height) / 2f)
         val rect = Rect(0, 0, width, height)
         val rectF = RectF(rect)
 
         canvas.drawRoundRect(rectF, radiusPx, radiusPx, paint)
         paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
 
-        val srcRect = Rect(0, 0, bitmap.width, bitmap.height)
+        // Center-crop source into square/target rect
+        val srcW = bitmap.width
+        val srcH = bitmap.height
+        val srcRect = if (srcW > srcH) {
+            val xOff = (srcW - srcH) / 2
+            Rect(xOff, 0, xOff + srcH, srcH)
+        } else {
+            val yOff = (srcH - srcW) / 2
+            Rect(0, yOff, srcW, yOff + srcW)
+        }
         canvas.drawBitmap(bitmap, srcRect, rect, paint)
-
         return output
     }
 
@@ -1220,94 +1343,101 @@ object SonicletWidgetManager {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
-        // Monochrome dark gradient
-        val bgPaint = Paint().apply {
-            isAntiAlias = true
-            shader = android.graphics.LinearGradient(
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
                 0f, 0f, 0f, height.toFloat(),
-                Color.parseColor("#242428"),
-                Color.parseColor("#131315"),
-                android.graphics.Shader.TileMode.CLAMP
+                Color.parseColor("#202624"),
+                Color.parseColor("#111514"),
+                Shader.TileMode.CLAMP
             )
         }
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
-        // Concentric vinyl groove circles
-        val groovePaint = Paint().apply {
-            isAntiAlias = true
+        val groovePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            color = Color.argb(14, 255, 255, 255)
+            color = Color.argb(18, 255, 255, 255)
             strokeWidth = 1.5f
         }
         val center = width / 2f
-        canvas.drawCircle(center, center, width * 0.44f, groovePaint)
-        groovePaint.strokeWidth = 1.0f
-        canvas.drawCircle(center, center, width * 0.32f, groovePaint)
+        canvas.drawCircle(center, center, width * 0.42f, groovePaint)
+        canvas.drawCircle(center, center, width * 0.30f, groovePaint)
 
-        // Draw official Soniclet launcher vector logo
         val drawable = ContextCompat.getDrawable(context, R.drawable.ic_soniclet_app_logo)
         if (drawable != null) {
-            val iconSize = (Math.min(width, height) * 0.54f).toInt()
+            val iconSize = (minOf(width, height) * 0.52f).toInt()
             val offsetX = (width - iconSize) / 2
             val offsetY = (height - iconSize) / 2
             drawable.setBounds(offsetX, offsetY, offsetX + iconSize, offsetY + iconSize)
             DrawableCompat.setTint(drawable, Color.parseColor("#EDEDF2"))
             drawable.draw(canvas)
         }
-
         return bitmap
     }
 
     private fun formatTime(ms: Long): String {
-        val totalSec = ms / 1000
-        val min = totalSec / 60
-        val sec = totalSec % 60
-        return String.format("%02d:%02d", min, sec)
+        val totalSec = ms.coerceAtLeast(0L) / 1000L
+        val min = totalSec / 60L
+        val sec = totalSec % 60L
+        return String.format(Locale.getDefault(), "%02d:%02d", min, sec)
     }
 
-    private fun createPlayButtonBitmap(context: Context, isPlaying: Boolean, accentColor: Int, cornerRadiusFloat: Float = 0.5f): Bitmap {
-        val sizePx = 100
+    private fun createPlayButtonBitmap(
+        context: Context,
+        isPlaying: Boolean,
+        accentColor: Int,
+        cornerRadiusFloat: Float = 0.55f
+    ): Bitmap {
+        val sizePx = 104
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accentColor }
-        
-        // Dynamically adjust button roundness based on corner radius setting
-        val buttonRadius = 16f + (cornerRadiusFloat.coerceIn(0f, 1f) * 34f)
+
+        val buttonRadius = 18f + (cornerRadiusFloat.coerceIn(0f, 1f) * 34f)
         val bounds = RectF(0f, 0f, sizePx.toFloat(), sizePx.toFloat())
         canvas.drawRoundRect(bounds, buttonRadius, buttonRadius, paint)
 
         val iconId = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
-        val drawable = ContextCompat.getDrawable(context, iconId)
+        val drawable = ContextCompat.getDrawable(context, iconId)?.mutate()
         if (drawable != null) {
-            val paddingPx = 25
+            val paddingPx = 26
             drawable.setBounds(paddingPx, paddingPx, sizePx - paddingPx, sizePx - paddingPx)
-            DrawableCompat.setTint(drawable, Color.BLACK)
+            val isBrightAccent = ColorUtils.calculateLuminance(accentColor) > 0.42
+            DrawableCompat.setTint(drawable, if (isBrightAccent) Color.parseColor("#0A0F0D") else Color.WHITE)
             drawable.draw(canvas)
         }
         return bitmap
     }
 
-    // Pin Widget API Helper (Android 8.0+)
     fun requestPinWidget(context: Context, widgetTypeIndex: Int): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val appWidgetManager = AppWidgetManager.getInstance(context)
             if (appWidgetManager.isRequestPinAppWidgetSupported) {
-                val providerClass = SonicletWidgetProvider::class.java
-                val providerComponent = ComponentName(context, providerClass)
+                val providerComponent = ComponentName(context, SonicletWidgetProvider::class.java)
+                val prefs = getPrefs(context)
+                val title = prefs.getString(CACHE_SONG_TITLE, "Soniclet Music") ?: "Soniclet Music"
+                val artist = prefs.getString(CACHE_SONG_ARTIST, "Tap to play") ?: "Tap to play"
+                val album = prefs.getString(CACHE_SONG_ALBUM, "Soniclet Library") ?: "Soniclet Library"
+                val contentUri = prefs.getString(CACHE_SONG_URI, null)
+                val artUri = prefs.getString(CACHE_SONG_ART_URI, null)
+                val path = prefs.getString(CACHE_SONG_PATH, "") ?: ""
+                val duration = prefs.getLong(CACHE_SONG_DURATION, 215_000L)
+                val position = prefs.getLong(CACHE_POSITION, 68_000L)
+                val isPlaying = prefs.getBoolean(CACHE_IS_PLAYING, false)
+                val isFav = prefs.getBoolean(CACHE_IS_FAV, false)
+
                 val previewViews = when (widgetTypeIndex) {
-                    0 -> buildTinyRemoteViews(context, "Soniclet", null, null, false)
-                    1 -> buildSmallBarRemoteViews(context, "Soniclet", null, null, false)
-                    2 -> buildCompactRemoteViews(context, "Now Playing", "Soniclet", null, null, false, false)
-                    3 -> buildSquareRemoteViews(context, "Now Playing", "Soniclet", null, null, false)
-                    4 -> buildCardRemoteViews(context, "Now Playing", "Soniclet", "Album", null, null, 0L, 0L, false, false, RepeatMode.OFF, false)
-                    5 -> buildVinylRemoteViews(context, "Now Playing", "Soniclet", null, null, false, false, false)
-                    else -> buildProRemoteViews(context, "Now Playing", "Soniclet", "Pro Deck", null, null, 0L, 0L, false, false, RepeatMode.OFF, false)
+                    0 -> buildTinyRemoteViews(context, title, contentUri, artUri, isPlaying)
+                    1 -> buildSmallBarRemoteViews(context, title, artist, contentUri, artUri, isPlaying)
+                    2 -> buildCompactRemoteViews(context, title, artist, contentUri, artUri, isPlaying, isFav, duration, position)
+                    3 -> buildSquareRemoteViews(context, title, artist, contentUri, artUri, isPlaying)
+                    4 -> buildVinylRemoteViews(context, title, artist, contentUri, artUri, isPlaying, isFav, false)
+                    5 -> buildCardRemoteViews(context, title, artist, album, contentUri, artUri, duration, position, isPlaying, isFav, RepeatMode.OFF, false)
+                    else -> buildProRemoteViews(context, title, artist, album, contentUri, artUri, path, duration, position, isPlaying, isFav, RepeatMode.OFF, false)
                 }
                 val extras = Bundle().apply {
                     putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, previewViews)
                 }
-                val success = appWidgetManager.requestPinAppWidget(providerComponent, extras, null)
-                return success
+                return appWidgetManager.requestPinAppWidget(providerComponent, extras, null)
             }
         }
         return false
