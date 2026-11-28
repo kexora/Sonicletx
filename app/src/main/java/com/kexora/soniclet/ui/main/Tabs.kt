@@ -15,6 +15,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,6 +64,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -154,6 +156,7 @@ fun getNavigationTabTitle(effectiveTab: NavigationTab, activeSettingsSubPage: Se
             SettingsSubPage.SYSTEM_HIDDEN_FOLDERS -> "Recordings & Hidden"
             SettingsSubPage.PERMISSIONS -> "Permissions"
             SettingsSubPage.ABOUT -> "About"
+            SettingsSubPage.SPECIAL_MODE -> "Special Mode & Dates"
             SettingsSubPage.MANUAL_ALL,
             SettingsSubPage.MANUAL_GESTURES,
             SettingsSubPage.MANUAL_MOTION -> "User Manual"
@@ -599,8 +602,7 @@ fun ColumnScope.MainTabRouterSection(
     }
     val highlightedTabIndex by remember(mainTabsList) {
         derivedStateOf {
-            val rawIndex = if (pagerState.isScrollInProgress) pagerState.targetPage else pagerState.currentPage
-            rawIndex.coerceIn(0, (mainTabsList.size - 1).coerceAtLeast(0))
+            pagerState.currentPage.coerceIn(0, (mainTabsList.size - 1).coerceAtLeast(0))
         }
     }
 
@@ -609,14 +611,10 @@ fun ColumnScope.MainTabRouterSection(
     val currentTabTitle = getNavigationTabTitle(displayTab, uiState.activeSettingsSubPage)
 
     // Clear multi-selection cleanly on page change
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }
-            .distinctUntilChanged()
-            .collect {
-                if (uiState.selectedSongIds.isNotEmpty()) {
-                    viewModel.clearSelectedSongs()
-                }
-            }
+    LaunchedEffect(pagerState.currentPage) {
+        if (uiState.selectedSongIds.isNotEmpty()) {
+            viewModel.clearSelectedSongs()
+        }
     }
 
     // Two-way ViewModel <-> Pager sync with loop guard so swipes never fight external tab changes
@@ -650,37 +648,39 @@ fun ColumnScope.MainTabRouterSection(
         }
     }
 
-    // Auto-centering LazyRow state for the top tab bar
+    // Auto-centering LazyRow state for the top tab bar bound directly to currentPage & settledPage
     val tabRowListState = rememberLazyListState()
-    LaunchedEffect(pagerState, mainTabsList) {
-        snapshotFlow {
-            val target = if (pagerState.isScrollInProgress) pagerState.targetPage else pagerState.currentPage
-            target to pagerState.settledPage
+    suspend fun scrollActiveTabToCenter(targetIndex: Int) {
+        if (mainTabsList.isEmpty()) return
+        val safeIndex = targetIndex.coerceIn(0, mainTabsList.lastIndex)
+        if (tabRowListState.layoutInfo.totalItemsCount == 0) {
+            withFrameNanos { }
         }
-            .distinctUntilChanged()
-            .collect { (activeRaw, settledRaw) ->
-                if (mainTabsList.isEmpty()) return@collect
-                val activeIndex = (if (pagerState.isScrollInProgress) activeRaw else settledRaw)
-                    .coerceIn(0, mainTabsList.lastIndex)
-
-                suspend fun centerTab(index: Int) {
-                    val layoutInfo = tabRowListState.layoutInfo
-                    val viewportWidth = (layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset)
-                        .coerceAtLeast(0)
-                    val visibleItem = layoutInfo.visibleItemsInfo.find { it.index == index }
-                    val estimatedItemWidth = visibleItem?.size
-                        ?: (layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: (viewportWidth / 4).coerceAtLeast(110))
-                    val centerOffset = ((viewportWidth - estimatedItemWidth) / 2).coerceAtLeast(0)
-                    tabRowListState.animateScrollToItem(index = index, scrollOffset = -centerOffset)
-                }
-
-                val wasVisible = tabRowListState.layoutInfo.visibleItemsInfo.any { it.index == activeIndex }
-                centerTab(activeIndex)
-                // Re-center precisely once measured if item was previously off-screen (e.g., Queue / Wrapped)
-                if (!wasVisible) {
-                    centerTab(activeIndex)
-                }
+        val initialInfo = tabRowListState.layoutInfo
+        val isCurrentlyVisible = initialInfo.visibleItemsInfo.any { it.index == safeIndex }
+        if (!isCurrentlyVisible) {
+            val approxViewport = (initialInfo.viewportEndOffset - initialInfo.viewportStartOffset).coerceAtLeast(0)
+            val approxOffset = (approxViewport / 3).coerceAtLeast(96)
+            tabRowListState.animateScrollToItem(
+                index = safeIndex,
+                scrollOffset = -approxOffset
+            )
+        }
+        val updatedInfo = tabRowListState.layoutInfo
+        val itemInfo = updatedInfo.visibleItemsInfo.find { it.index == safeIndex }
+        val viewportWidth = (updatedInfo.viewportEndOffset - updatedInfo.viewportStartOffset).coerceAtLeast(0)
+        if (itemInfo != null && viewportWidth > 0) {
+            val viewportCenter = updatedInfo.viewportStartOffset + (viewportWidth / 2f)
+            val itemCenter = itemInfo.offset + (itemInfo.size / 2f)
+            val delta = itemCenter - viewportCenter
+            if (kotlin.math.abs(delta) > 3f) {
+                tabRowListState.animateScrollBy(delta)
             }
+        } else if (viewportWidth > 0) {
+            val estimatedItemWidth = updatedInfo.visibleItemsInfo.firstOrNull()?.size ?: 180
+            val centerOffset = ((viewportWidth - estimatedItemWidth) / 2).coerceAtLeast(0)
+            tabRowListState.animateScrollToItem(index = safeIndex, scrollOffset = -centerOffset)
+        }
     }
 
     val showKapar = displayTab != NavigationTab.DRIVE_MODE &&
@@ -689,6 +689,12 @@ fun ColumnScope.MainTabRouterSection(
         displayTab != NavigationTab.DUPLICATES &&
         displayTab != NavigationTab.SONG_DETAILS
     var isSearchActive by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pagerState.currentPage, pagerState.settledPage, mainTabsList.size, isMainPagerTab, isSearchActive) {
+        if (isMainPagerTab && !isSearchActive && mainTabsList.isNotEmpty()) {
+            scrollActiveTabToCenter(pagerState.currentPage)
+        }
+    }
 
     BackHandler(enabled = isSearchActive) {
         isSearchActive = false
@@ -749,6 +755,7 @@ fun ColumnScope.MainTabRouterSection(
                     state = tabRowListState,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .background(Color.Transparent)
                         .testTag("main_top_tab_bar"),
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -761,9 +768,9 @@ fun ColumnScope.MainTabRouterSection(
                         val isSelected = highlightedTabIndex == index
                         val tabTextColor by animateColorAsState(
                             targetValue = if (isSelected) {
-                                MaterialTheme.colorScheme.onSurface
+                                MaterialTheme.colorScheme.onBackground
                             } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f)
+                                MaterialTheme.colorScheme.onSurfaceVariant
                             },
                             animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
                             label = "tab_text_color_$index"
@@ -796,6 +803,7 @@ fun ColumnScope.MainTabRouterSection(
                                         if (index in mainTabsList.indices) {
                                             tabTapScrollJob?.cancel()
                                             tabTapScrollJob = pagerScope.launch {
+                                                launch { scrollActiveTabToCenter(index) }
                                                 pagerState.animateScrollToPage(index)
                                             }
                                         }
@@ -808,7 +816,7 @@ fun ColumnScope.MainTabRouterSection(
                         ) {
                             Text(
                                 text = title,
-                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 15.sp,
                                 color = tabTextColor,
                                 maxLines = 1

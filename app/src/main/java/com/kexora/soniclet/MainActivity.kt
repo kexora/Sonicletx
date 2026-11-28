@@ -115,7 +115,19 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    private fun installSplashScreen() {
+        setTheme(R.style.Theme_Soniclet)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                splashScreen.setOnExitAnimationListener { splashScreenView ->
+                    splashScreenView.remove()
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
@@ -130,12 +142,6 @@ class MainActivity : ComponentActivity() {
             window.decorView.isForceDarkAllowed = false
         }
         WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            splashScreen.setOnExitAnimationListener { splashScreenView ->
-                splashScreenView.remove()
-            }
-        }
         viewModel = (applicationContext as SonicletApplication).musicViewModel
         viewModel.refreshSpecialCelebrationDate()
 
@@ -186,11 +192,17 @@ class MainActivity : ComponentActivity() {
             val isNowPlayingVisible = uiState.currentTab == NavigationTab.NOW_PLAYING && uiState.currentSong != null
             val isNowPlayingDarkBackdrop = isNowPlayingVisible && (isDarkTheme || uiState.currentSong?.albumArtUri != null)
             val isDriveModeVisible = uiState.currentTab == NavigationTab.DRIVE_MODE
+            val isDarkSplashOverlayVisible = (showSplash || uiState.previewSplashTier != null) && (
+                isDarkTheme ||
+                    uiState.isSpecialModeEnabled ||
+                    uiState.previewSplashTier == com.kexora.soniclet.ui.components.splash.SonicletSplashTier.TIER_2_SPECIAL_MODE ||
+                    uiState.previewSplashTier == com.kexora.soniclet.ui.components.splash.SonicletSplashTier.TIER_3_SPECIAL_DATE
+                )
 
             val useLightStatusBars: Boolean
             val useLightNavBars: Boolean
             when {
-                isOnboardingVisible || isNowPlayingDarkBackdrop || isDriveModeVisible -> {
+                isDarkSplashOverlayVisible || isOnboardingVisible || isNowPlayingDarkBackdrop || isDriveModeVisible -> {
                     // Pure dark OLED screens always get crisp white system bar icons
                     useLightStatusBars = false
                     useLightNavBars = false

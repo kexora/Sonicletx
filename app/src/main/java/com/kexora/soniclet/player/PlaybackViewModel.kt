@@ -40,8 +40,10 @@ import com.kexora.soniclet.database.Playlist
 import com.kexora.soniclet.database.SavedQueue
 import com.kexora.soniclet.database.Song
 import com.kexora.soniclet.easteregg.MuhLoveRegistry
+import com.kexora.soniclet.easteregg.SpecialDateEntry
 import com.kexora.soniclet.easteregg.SpecialDateInfo
 import com.kexora.soniclet.equalizer.AudioFxViewModel
+import com.kexora.soniclet.ui.components.splash.SonicletSplashTier
 import com.kexora.soniclet.library.AudioRepository
 import com.kexora.soniclet.library.AudioRepositoryImpl
 import com.kexora.soniclet.library.LibraryViewModel
@@ -314,10 +316,16 @@ data class MusicUiState(
     val currentSongAudioSpecs: AudioSpecs? = null,
     val songSpecsCache: Map<Long, AudioSpecs> = emptyMap(),
 
-    // Secret Moh Mode State
+    // Secret Moh Mode / Special Mode State
     val isMohModeActivated: Boolean = false,
-    val todaySpecialDate: SpecialDateInfo? = null
-)
+    val specialDates: List<SpecialDateEntry> = emptyList(),
+    val todaySpecialDate: SpecialDateInfo? = null,
+    val previewSplashTier: SonicletSplashTier? = null,
+    val previewSpecialDate: SpecialDateEntry? = null
+) {
+    val isSpecialModeEnabled: Boolean
+        get() = isMohModeActivated
+}
 
 /**
  * Core ViewModel managing UI state, playback controls, queue management, and delegating
@@ -1431,10 +1439,24 @@ class MusicViewModel @Inject constructor(
         viewModelScope.launch { audioRepository.isPickUpToPlayEnabled.collectLatest { v -> _uiState.update { it.copy(isPickUpToPlayEnabled = v) } } }
         viewModelScope.launch { audioRepository.isFirstLaunch.collectLatest { isFirst -> _uiState.update { it.copy(isFirstLaunch = isFirst) } } }
 
+        val initialSpecialDates = MuhLoveRegistry.loadSpecialDateEntries(context)
+        _uiState.update { it.copy(specialDates = initialSpecialDates) }
+
         viewModelScope.launch {
             audioRepository.isMohModeActivated.collectLatest { activated ->
-                val special = if (activated) MuhLoveRegistry.getTodaySpecialDate() else null
-                _uiState.update { it.copy(isMohModeActivated = activated, todaySpecialDate = special) }
+                val currentEntries = _uiState.value.specialDates.ifEmpty {
+                    MuhLoveRegistry.loadSpecialDateEntries(context)
+                }
+                val special = if (activated) {
+                    MuhLoveRegistry.getTodaySpecialDate(customEntries = currentEntries)
+                } else null
+                _uiState.update {
+                    it.copy(
+                        isMohModeActivated = activated,
+                        specialDates = currentEntries,
+                        todaySpecialDate = special
+                    )
+                }
             }
         }
 
@@ -2819,6 +2841,11 @@ class MusicViewModel @Inject constructor(
     fun setResumeLastPositionEnabled(enabled: Boolean) = fxVm.setResumeLastPositionEnabled(enabled)
     fun setFirstLaunch(isFirst: Boolean) = fxVm.setFirstLaunch(isFirst)
     fun setMohModeActivated(activated: Boolean) = fxVm.setMohModeActivated(activated)
+    fun setSpecialModeEnabled(enabled: Boolean) = fxVm.setMohModeActivated(enabled)
+    fun updateSpecialDates(entries: List<SpecialDateEntry>) = fxVm.updateSpecialDates(entries)
+    fun triggerSplashPreview(tier: SonicletSplashTier, entry: SpecialDateEntry? = null) =
+        fxVm.triggerSplashPreview(tier, entry)
+    fun clearSplashPreview() = fxVm.clearSplashPreview()
     fun refreshSpecialCelebrationDate() = fxVm.refreshSpecialCelebrationDate()
 
     class Factory(

@@ -380,33 +380,35 @@ fun BoxScope.AppOverlays(
         )
     }
 
-    // Seamless Splash Screen Overlay with buttery-smooth crossfade
+    // Seamless 3-Tier Animated Splash Screen Overlay (Cold Launch + On-Demand Preview)
+    val isPreviewActive = uiState.previewSplashTier != null
     AnimatedVisibility(
-        visible = showSplash,
-        enter = EnterTransition.None,
+        visible = showSplash || isPreviewActive,
+        enter = if (isPreviewActive) fadeIn(animationSpec = tween(220)) else EnterTransition.None,
         exit = fadeOut(
             animationSpec = tween(
-                durationMillis = 350,
+                durationMillis = 320,
                 easing = FastOutSlowInEasing
             )
         ),
         modifier = Modifier.zIndex(200f)
     ) {
-        AnimatedSplashScreen(
-            isMohModeActivated = uiState.isMohModeActivated,
-            onSplashFinished = onSplashFinished
+        com.kexora.soniclet.ui.components.splash.SonicletSplashScreen(
+            appTheme = uiState.appTheme,
+            isSpecialModeEnabled = uiState.isSpecialModeEnabled,
+            specialDates = uiState.specialDates,
+            forcedTier = uiState.previewSplashTier,
+            forcedSpecialDate = uiState.previewSpecialDate,
+            onSplashFinished = {
+                if (isPreviewActive) {
+                    viewModel.clearSplashPreview()
+                }
+                if (showSplash) {
+                    onSplashFinished()
+                }
+            }
         )
     }
 }
 
-@Composable
-fun AnimatedSplashScreen(
-    isMohModeActivated: Boolean = false,
-    onSplashFinished: () -> Unit
-) {
-    LaunchedEffect(Unit) {
-        delay(450L)
-        onSplashFinished()
-    }
-}
 

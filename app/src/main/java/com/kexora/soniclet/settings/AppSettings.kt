@@ -35,7 +35,8 @@ enum class SettingsSubPage {
     MANUAL_MOTION,
     HOME_TABS_CUSTOMIZER,
     VIDEO_TO_M4A,
-    SYSTEM_HIDDEN_FOLDERS
+    SYSTEM_HIDDEN_FOLDERS,
+    SPECIAL_MODE
 }
 
 @Composable
@@ -66,6 +67,7 @@ fun AppSettings(
             SettingsSubPage.MANUAL_GESTURES -> viewModel.setSettingsSubPage(SettingsSubPage.GESTURES_GUIDE)
             SettingsSubPage.MANUAL_MOTION -> viewModel.setSettingsSubPage(SettingsSubPage.MOTION_CONTROLS)
             SettingsSubPage.MANUAL_ALL -> viewModel.setSettingsSubPage(SettingsSubPage.ABOUT)
+            SettingsSubPage.SPECIAL_MODE -> viewModel.setSettingsSubPage(SettingsSubPage.ABOUT)
             else -> onBackToHome()
         }
     }
@@ -308,7 +310,19 @@ fun AppSettings(
                     AboutSettingsSubPage(
                         onOpenUserGuide = { viewModel.setSettingsSubPage(SettingsSubPage.MANUAL_ALL) },
                         isMohModeActivated = uiState.isMohModeActivated,
-                        onActivateMohMode = { viewModel.setMohModeActivated(it) }
+                        onActivateMohMode = { viewModel.setMohModeActivated(it) },
+                        onOpenSpecialModeSettings = { viewModel.setSettingsSubPage(SettingsSubPage.SPECIAL_MODE) }
+                    )
+                }
+            }
+            SettingsSubPage.SPECIAL_MODE -> {
+                SettingsSubPageWrapper(onBack = { viewModel.setSettingsSubPage(SettingsSubPage.ABOUT) }, isEnabled = uiState.isOneFingerSwipeBackEnabled) {
+                    SpecialModeSettingsSubPage(
+                        isSpecialModeEnabled = uiState.isSpecialModeEnabled,
+                        specialDates = uiState.specialDates,
+                        onToggleSpecialMode = { viewModel.setSpecialModeEnabled(it) },
+                        onUpdateSpecialDates = { viewModel.updateSpecialDates(it) },
+                        onPreviewSplash = { tier, entry -> viewModel.triggerSplashPreview(tier, entry) }
                     )
                 }
             }

@@ -247,9 +247,15 @@ fun MiniPlayer(
                             contentAlignment = Alignment.Center
                         ) {
                             if (song?.albumArtUri != null) {
+                                val miniContext = LocalContext.current
+                                val miniArtKey = remember(song.id, song.dateAdded, song.albumArtUri, miniContext) {
+                                    com.kexora.soniclet.utils.CustomArtworkManager.buildSongArtCacheKey(miniContext, song)
+                                }
                                 SubcomposeAsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
+                                    model = ImageRequest.Builder(miniContext)
                                         .data(song.albumArtUri)
+                                        .memoryCacheKey("${miniArtKey}_mini")
+                                        .diskCacheKey(miniArtKey)
                                         .size(120, 120)
                                         .crossfade(true)
                                         .build(),

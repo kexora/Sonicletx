@@ -762,8 +762,52 @@ internal class AudioFxViewModel(
     fun setFirstLaunch(isFirst: Boolean) = vm.audioRepository.setFirstLaunch(isFirst)
     fun setMohModeActivated(activated: Boolean) = vm.audioRepository.setMohModeActivated(activated)
 
+    fun updateSpecialDates(entries: List<com.kexora.soniclet.easteregg.SpecialDateEntry>) {
+        MuhLoveRegistry.saveSpecialDateEntries(vm.context, entries)
+        val special = if (vm._uiState.value.isMohModeActivated) {
+            MuhLoveRegistry.getTodaySpecialDate(customEntries = entries)
+        } else null
+        vm._uiState.update {
+            it.copy(
+                specialDates = entries,
+                todaySpecialDate = special
+            )
+        }
+    }
+
+    fun triggerSplashPreview(
+        tier: com.kexora.soniclet.ui.components.splash.SonicletSplashTier,
+        entry: com.kexora.soniclet.easteregg.SpecialDateEntry? = null
+    ) {
+        vm._uiState.update {
+            it.copy(
+                previewSplashTier = tier,
+                previewSpecialDate = entry
+            )
+        }
+    }
+
+    fun clearSplashPreview() {
+        vm._uiState.update {
+            it.copy(
+                previewSplashTier = null,
+                previewSpecialDate = null
+            )
+        }
+    }
+
     fun refreshSpecialCelebrationDate() {
-        val special = if (vm._uiState.value.isMohModeActivated) MuhLoveRegistry.getTodaySpecialDate() else null
-        vm._uiState.update { it.copy(todaySpecialDate = special) }
+        val entries = vm._uiState.value.specialDates.ifEmpty {
+            MuhLoveRegistry.loadSpecialDateEntries(vm.context)
+        }
+        val special = if (vm._uiState.value.isMohModeActivated) {
+            MuhLoveRegistry.getTodaySpecialDate(customEntries = entries)
+        } else null
+        vm._uiState.update {
+            it.copy(
+                specialDates = entries,
+                todaySpecialDate = special
+            )
+        }
     }
 }

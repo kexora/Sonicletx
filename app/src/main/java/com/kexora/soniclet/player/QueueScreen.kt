@@ -583,9 +583,15 @@ private fun QueueItemRow(
                     .clip(CircleShape)
             ) {
                 if (song.albumArtUri != null) {
+                    val queueContext = LocalContext.current
+                    val queueArtKey = remember(song.id, song.dateAdded, song.albumArtUri, queueContext) {
+                        com.kexora.soniclet.utils.CustomArtworkManager.buildSongArtCacheKey(queueContext, song)
+                    }
                     SubcomposeAsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
+                        model = ImageRequest.Builder(queueContext)
                             .data(song.albumArtUri)
+                            .memoryCacheKey("${queueArtKey}_queue")
+                            .diskCacheKey(queueArtKey)
                             .crossfade(true)
                             .build(),
                         contentDescription = song.title,

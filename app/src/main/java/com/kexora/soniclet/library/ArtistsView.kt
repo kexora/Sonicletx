@@ -92,11 +92,11 @@ fun ArtistsView(uiState: MusicUiState, viewModel: MusicViewModel) {
                 modifier = Modifier
                     .fillMaxSize()
                     .scrollFade(gridState),
-                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = bottomPadding),
+                contentPadding = PaddingValues(top = 4.dp, bottom = bottomPadding),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // Filter pills scroll naturally with list (not sticky pinned)
+                // Filter pills scroll naturally edge-to-edge with list
                 item(key = "filter_pills", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                     ArtistFilterPills(
                         displayMode = displayMode,
@@ -157,10 +157,10 @@ fun ArtistsView(uiState: MusicUiState, viewModel: MusicViewModel) {
                 modifier = Modifier
                     .fillMaxSize()
                     .scrollFade(listState),
-                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = bottomPadding),
+                contentPadding = PaddingValues(top = 4.dp, bottom = bottomPadding),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                // Filter pills scroll naturally with list (not sticky pinned)
+                // Filter pills scroll naturally edge-to-edge with list
                 item(key = "filter_pills") {
                     ArtistFilterPills(
                         displayMode = displayMode,
@@ -226,19 +226,27 @@ private fun ArtistFilterPills(
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         item {
             Surface(
                 onClick = { onModeChange(ArtistDisplayMode.INDIVIDUAL) },
                 shape = CircleShape,
-                color = if (displayMode == ArtistDisplayMode.INDIVIDUAL) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f),
-                contentColor = if (displayMode == ArtistDisplayMode.INDIVIDUAL) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                color = if (displayMode == ArtistDisplayMode.INDIVIDUAL) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+                contentColor = if (displayMode == ArtistDisplayMode.INDIVIDUAL) {
+                    MaterialTheme.colorScheme.onPrimary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.5.dp)
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Person,
@@ -248,7 +256,8 @@ private fun ArtistFilterPills(
                     Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = "Individual ($individualCount)",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                        maxLines = 1
                     )
                 }
             }
@@ -258,12 +267,20 @@ private fun ArtistFilterPills(
             Surface(
                 onClick = { onModeChange(ArtistDisplayMode.COLLABORATIONS) },
                 shape = CircleShape,
-                color = if (displayMode == ArtistDisplayMode.COLLABORATIONS) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f),
-                contentColor = if (displayMode == ArtistDisplayMode.COLLABORATIONS) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                color = if (displayMode == ArtistDisplayMode.COLLABORATIONS) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+                contentColor = if (displayMode == ArtistDisplayMode.COLLABORATIONS) {
+                    MaterialTheme.colorScheme.onPrimary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.5.dp)
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Groups,
@@ -273,7 +290,8 @@ private fun ArtistFilterPills(
                     Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = "Collaborations ($collabCount)",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                        maxLines = 1
                     )
                 }
             }
@@ -283,16 +301,25 @@ private fun ArtistFilterPills(
             Surface(
                 onClick = { onModeChange(ArtistDisplayMode.ALL_COMBINED) },
                 shape = CircleShape,
-                color = if (displayMode == ArtistDisplayMode.ALL_COMBINED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f),
-                contentColor = if (displayMode == ArtistDisplayMode.ALL_COMBINED) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                color = if (displayMode == ArtistDisplayMode.ALL_COMBINED) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+                contentColor = if (displayMode == ArtistDisplayMode.ALL_COMBINED) {
+                    MaterialTheme.colorScheme.onPrimary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.5.dp)
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                 ) {
                     Text(
                         text = "Together ($allCount)",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                        maxLines = 1
                     )
                 }
             }
@@ -374,8 +401,11 @@ private fun ArtistGridCard(
             )
 
             val subtitle = when {
-                stats != null && stats.collabTracks > 0 -> "${stats.totalTracks} tracks (${stats.soloTracks} solo • ${stats.collabTracks} collab)"
-                isCollaboration -> "$songCount tracks • Collab"
+                stats != null && stats.collabTracks > 0 -> {
+                    val totalWord = if (stats.totalTracks == 1) "track" else "tracks"
+                    "${stats.totalTracks} $totalWord (${stats.soloTracks} solo • ${stats.collabTracks} collab)"
+                }
+                isCollaboration -> "$songCount ${if (songCount == 1) "track" else "tracks"} • Collab"
                 else -> "$songCount ${if (songCount == 1) "track" else "tracks"}"
             }
 
@@ -406,7 +436,7 @@ private fun ArtistListRow(
         color = Color.Transparent
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -479,8 +509,11 @@ private fun ArtistListRow(
                 }
 
                 val subtitle = when {
-                    stats != null && stats.collabTracks > 0 -> "${stats.totalTracks} tracks (${stats.soloTracks} solo • ${stats.collabTracks} collab)"
-                    isCollaboration -> "$songCount tracks • Multiple Artists Together"
+                    stats != null && stats.collabTracks > 0 -> {
+                        val totalWord = if (stats.totalTracks == 1) "track" else "tracks"
+                        "${stats.totalTracks} $totalWord (${stats.soloTracks} solo • ${stats.collabTracks} collab)"
+                    }
+                    isCollaboration -> "$songCount ${if (songCount == 1) "track" else "tracks"} • Multiple Artists Together"
                     else -> "$songCount ${if (songCount == 1) "track" else "tracks"}"
                 }
 

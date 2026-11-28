@@ -1,9 +1,33 @@
 package com.kexora.soniclet.easteregg
 
 import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
+
+/**
+ * User-configurable Special Date Entry for Special Mode & Tier 3 Celebration Splash.
+ * [month] is 1-based (1 = Jan .. 12 = Dec), [day] is 1..31.
+ */
+data class SpecialDateEntry(
+    val id: String,
+    val title: String,
+    val message: String,
+    val day: Int,
+    val month: Int,
+    val isEnabled: Boolean = true
+) {
+    fun formattedShortDate(): String {
+        val monthNames = arrayOf(
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+        )
+        val safeMonth = (month - 1).coerceIn(0, 11)
+        return "$day ${monthNames[safeMonth]}"
+    }
+}
 
 data class SpecialDateInfo(
     val month: Int, // Calendar.JANUARY (0) to Calendar.DECEMBER (11)
@@ -536,17 +560,150 @@ object MuhLoveRegistry {
         }
     }
 
+    private const val PREF_SPECIAL_DATES_JSON = "setting_special_dates_json"
+
+    fun getDefaultSpecialDateEntries(calendar: Calendar = Calendar.getInstance()): List<SpecialDateEntry> {
+        val currentYear = calendar.get(Calendar.YEAR)
+        val age = max(currentYear - 2007, 1)
+        return listOf(
+            SpecialDateEntry(
+                id = "special_birthday_21_mar",
+                title = "Happy $age${getOrdinalSuffix(age)} Birthday Karishma ✨",
+                message = "Celebrating the most beautiful soul in my universe 💖",
+                day = 21,
+                month = 3,
+                isEnabled = true
+            ),
+            SpecialDateEntry(
+                id = "special_first_talk_1_jul",
+                title = "First Talk Anniversary 💬✨",
+                message = "Celebrating the magical day our endless conversations began 💖",
+                day = 1,
+                month = 7,
+                isEnabled = true
+            ),
+            SpecialDateEntry(
+                id = "special_proposal_23_nov",
+                title = "Happy Proposal Anniversary 💍✨",
+                message = "The unforgettable moment our dreams turned into forever ❤️",
+                day = 23,
+                month = 11,
+                isEnabled = true
+            )
+        )
+    }
+
+    fun loadSpecialDateEntries(context: Context): List<SpecialDateEntry> {
+        val prefs = context.getSharedPreferences("soniclet_audio_prefs", Context.MODE_PRIVATE)
+        val rawJson = prefs.getString(PREF_SPECIAL_DATES_JSON, null)
+        if (rawJson.isNullOrBlank()) {
+            return getDefaultSpecialDateEntries()
+        }
+        return try {
+            val arr = JSONArray(rawJson)
+            val result = mutableListOf<SpecialDateEntry>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val id = obj.optString("id", "special_$i")
+                val title = obj.optString("title", "Special Day ✨")
+                val message = obj.optString("message", "Wishing you a magical day filled with music and joy 💖")
+                val day = obj.optInt("day", 1).coerceIn(1, 31)
+                val month = obj.optInt("month", 1).coerceIn(1, 12)
+                val isEnabled = obj.optBoolean("isEnabled", true)
+                result.add(
+                    SpecialDateEntry(
+                        id = id,
+                        title = title,
+                        message = message,
+                        day = day,
+                        month = month,
+                        isEnabled = isEnabled
+                    )
+                )
+            }
+            if (result.isEmpty()) getDefaultSpecialDateEntries() else result
+        } catch (_: Exception) {
+            getDefaultSpecialDateEntries()
+        }
+    }
+
+    fun saveSpecialDateEntries(context: Context, entries: List<SpecialDateEntry>) {
+        try {
+            val arr = JSONArray()
+            entries.forEach { entry ->
+                val obj = JSONObject().apply {
+                    put("id", entry.id)
+                    put("title", entry.title)
+                    put("message", entry.message)
+                    put("day", entry.day.coerceIn(1, 31))
+                    put("month", entry.month.coerceIn(1, 12))
+                    put("isEnabled", entry.isEnabled)
+                }
+                arr.put(obj)
+            }
+            val prefs = context.getSharedPreferences("soniclet_audio_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putString(PREF_SPECIAL_DATES_JSON, arr.toString()).apply()
+        } catch (_: Exception) {}
+    }
+
     /**
-     * Checks if today matches any configured special date (21 March, 1 July, 23 November).
-     * STRICT: Only returns a SpecialDateInfo if today's calendar date is GENUINELY
-     * that exact special date. Returns null on all other days.
+     * Matches today's DAY_OF_MONTH and MONTH against all enabled SpecialDateEntry items.
      */
-    fun getTodaySpecialDate(calendar: Calendar = Calendar.getInstance(), allowDemoIfActive: Boolean = false): SpecialDateInfo? {
-        val currentMonth = calendar.get(Calendar.MONTH)
+    fun getTodayMatchedSpecialDateEntry(
+        entries: List<SpecialDateEntry>,
+        calendar: Calendar = Calendar.getInstance()
+    ): SpecialDateEntry? {
+        val currentMonth1Based = calendar.get(Calendar.MONTH) + 1 // 1..12
+        val currentDay = calendar.get(Calendar.DAY_OF_MONTH)
+        return entries.firstOrNull { entry ->
+            entry.isEnabled && entry.day == currentDay && entry.month == currentMonth1Based
+        }
+    }
+
+    /**
+     * Checks if today matches any configured special date (built-in or user-saved SpecialDateEntry).
+     * STRICT: Only returns a SpecialDateInfo if today's calendar date is GENUINELY
+     * that exact special date and enabled. Returns null on all other days.
+     */
+    fun getTodaySpecialDate(
+        calendar: Calendar = Calendar.getInstance(),
+        allowDemoIfActive: Boolean = false,
+        customEntries: List<SpecialDateEntry>? = null
+    ): SpecialDateInfo? {
+        val currentMonth0Based = calendar.get(Calendar.MONTH)
+        val currentMonth1Based = currentMonth0Based + 1
         val currentDay = calendar.get(Calendar.DAY_OF_MONTH)
 
-        val dates = getSpecialDates(calendar)
-        return dates.find { it.month == currentMonth && it.dayOfMonth == currentDay }
+        val builtInDates = getSpecialDates(calendar)
+        val matchedBuiltIn = builtInDates.find { it.month == currentMonth0Based && it.dayOfMonth == currentDay }
+
+        if (customEntries != null) {
+            val matchedCustom = customEntries.firstOrNull {
+                it.isEnabled && it.day == currentDay && it.month == currentMonth1Based
+            } ?: return null
+
+            if (matchedBuiltIn != null) {
+                return matchedBuiltIn.copy(
+                    title = matchedCustom.title.ifBlank { matchedBuiltIn.title },
+                    subtitle = matchedCustom.message.ifBlank { matchedBuiltIn.subtitle }
+                )
+            }
+
+            return SpecialDateInfo(
+                month = currentMonth0Based,
+                dayOfMonth = currentDay,
+                title = matchedCustom.title,
+                subtitle = matchedCustom.message,
+                badgeText = "${matchedCustom.formattedShortDate().uppercase()} • SPECIAL DAY 🎉",
+                celebrationIcon = "🎉",
+                messages = listOf(
+                    matchedCustom.message,
+                    "${matchedCustom.title} — ${matchedCustom.message}"
+                )
+            )
+        }
+
+        return matchedBuiltIn
     }
 
     /**

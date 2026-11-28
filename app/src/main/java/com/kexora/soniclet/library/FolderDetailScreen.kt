@@ -135,8 +135,9 @@ fun FolderSongsDetailView(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                val detailTrackLabel = if (songs.size == 1) "1 track" else "${songs.size} tracks"
                 Text(
-                    text = "${songs.size} tracks • ${formatFolderDuration(totalDurationMs)}",
+                    text = "$detailTrackLabel • ${formatFolderDuration(totalDurationMs)}",
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

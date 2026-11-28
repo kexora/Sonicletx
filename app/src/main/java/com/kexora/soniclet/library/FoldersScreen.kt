@@ -716,8 +716,9 @@ private fun ModernFolderGridCard(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
+                val trackLabel = if (folder.songCount == 1) "1 track" else "${folder.songCount} tracks"
                 Text(
-                    text = "${folder.songCount} tracks • $durationStr",
+                    text = "$trackLabel • $durationStr",
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 11.sp
                     ),
@@ -831,8 +832,9 @@ private fun ModernFolderListRow(
                 }
             }
             Spacer(modifier = Modifier.height(2.dp))
+            val trackLabel = if (folder.songCount == 1) "1 track" else "${folder.songCount} tracks"
             Text(
-                text = "${folder.songCount} tracks • $durationStr",
+                text = "$trackLabel • $durationStr",
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontSize = 12.sp
                 ),

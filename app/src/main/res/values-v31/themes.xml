@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.MyApplication" parent="android:Theme.DeviceDefault.NoActionBar">
-        <!-- Completely disable default splash screen on Android 12+ (API 31+) -->
-        <item name="android:windowDisablePreview">true</item>
-        <item name="android:windowIsTranslucent">true</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
-        <item name="android:windowSplashScreenBackground">@android:color/transparent</item>
-        <item name="android:windowBackground">@android:color/transparent</item>
+    <style name="Theme.Soniclet.Starting" parent="Theme.Soniclet">
+        <item name="android:windowSplashScreenBackground">#060807</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenAnimationDuration">120</item>
+        <item name="android:windowBackground">#060807</item>
         <item name="android:forceDarkAllowed">false</item>
     </style>
 </resources>

@@ -154,7 +154,8 @@ private fun launchSupportEmail(
 fun AboutSettingsSubPage(
     onOpenUserGuide: () -> Unit,
     isMohModeActivated: Boolean = false,
-    onActivateMohMode: (Boolean) -> Unit = {}
+    onActivateMohMode: (Boolean) -> Unit = {},
+    onOpenSpecialModeSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val mohPrefs = remember { context.getSharedPreferences("soniclet_preferences", Context.MODE_PRIVATE) }
@@ -602,6 +603,18 @@ fun AboutSettingsSubPage(
             onClick = onOpenUserGuide
         )
 
+        if (isMohModeActivated) {
+            EdgeHairlineDivider()
+
+            AboutItemRow(
+                icon = Icons.Rounded.Favorite,
+                title = "Special Mode & Celebration Dates",
+                subtitle = "Manage special dates and preview the animated Special Edition splash screens",
+                tag = "about_special_mode_settings",
+                onClick = onOpenSpecialModeSettings
+            )
+        }
+
         EdgeHairlineDivider()
 
         AboutItemRow(
@@ -842,6 +855,19 @@ fun AboutSettingsSubPage(
                     Icon(Icons.Rounded.MenuBook, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Open Love Notes & Diary 📖💖", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = { onOpenSpecialModeSettings() },
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 10.dp)
+                ) {
+                    Icon(Icons.Rounded.Favorite, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Manage Special Dates & Preview Splash ✨", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
