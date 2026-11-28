@@ -1,17 +1,71 @@
 package com.kexora.soniclet.ui.components.library
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.AudioFile
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.HighQuality
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.NewReleases
+import androidx.compose.material.icons.rounded.North
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.SdCard
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.SortByAlpha
+import androidx.compose.material.icons.rounded.South
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.TrendingUp
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -26,8 +81,20 @@ import androidx.compose.ui.unit.sp
 import com.kexora.soniclet.player.MusicUiState
 import com.kexora.soniclet.player.MusicViewModel
 import com.kexora.soniclet.player.SortOption
-import com.kexora.soniclet.library.*
 import com.kexora.soniclet.utils.fuzzyMatch
+
+private data class SortChipItem(
+    val option: SortOption,
+    val label: String,
+    val icon: ImageVector
+)
+
+private data class AttributeChipItem(
+    val code: String,
+    val label: String,
+    val selectedIcon: ImageVector,
+    val unselectedIcon: ImageVector = selectedIcon
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,42 +107,52 @@ fun SongFilterSortSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollState = rememberScrollState()
 
-    // -------------------------------------------------------------------------
-    // LOCAL DRAFT STATE (Only committed when user taps "Apply")
-    // -------------------------------------------------------------------------
+    // Local draft state (committed only when tapping Apply)
     var draftSortOption by remember { mutableStateOf(uiState.sortOption) }
     var draftSortAscending by remember { mutableStateOf(uiState.sortAscending) }
     var draftAttributeFilter by remember { mutableStateOf(uiState.attributeFilter) }
     var draftFormatFilter by remember { mutableStateOf(uiState.formatFilter) }
     var draftDurationCategoryFilter by remember { mutableStateOf(uiState.durationCategoryFilter) }
 
-    // Live matching track count for the draft filters
+    // Live matching track count matching LibraryViewModel.filterAndSortSongs
     val draftMatchCount = remember(
         draftFormatFilter,
         draftDurationCategoryFilter,
         draftAttributeFilter,
         uiState.songList,
         uiState.searchQuery,
-        uiState.favoriteSongIds
+        uiState.favoriteSongIds,
+        uiState.playCounts
     ) {
         var list = if (uiState.searchQuery.isBlank()) uiState.songList else {
             uiState.songList.filter { song ->
                 song.title.fuzzyMatch(uiState.searchQuery) ||
-                        song.artist.fuzzyMatch(uiState.searchQuery) ||
-                        song.album.fuzzyMatch(uiState.searchQuery) ||
-                        song.folderName.fuzzyMatch(uiState.searchQuery)
+                    song.artist.fuzzyMatch(uiState.searchQuery) ||
+                    song.album.fuzzyMatch(uiState.searchQuery) ||
+                    song.folderName.fuzzyMatch(uiState.searchQuery)
             }
         }
 
-        // 1. Format Filter
         if (draftFormatFilter != "ALL") {
-            val ext = draftFormatFilter.lowercase()
-            list = list.filter { song ->
-                song.filePath.endsWith(".$ext", ignoreCase = true) || song.title.endsWith(".$ext", ignoreCase = true)
+            list = when (draftFormatFilter.uppercase()) {
+                "M4A" -> list.filter { song ->
+                    song.filePath.endsWith(".m4a", true) || song.filePath.endsWith(".aac", true) ||
+                        song.title.endsWith(".m4a", true) || song.title.endsWith(".aac", true)
+                }
+                "OGG" -> list.filter { song ->
+                    song.filePath.endsWith(".ogg", true) || song.filePath.endsWith(".opus", true) ||
+                        song.title.endsWith(".ogg", true) || song.title.endsWith(".opus", true)
+                }
+                else -> {
+                    val ext = draftFormatFilter.lowercase()
+                    list.filter { song ->
+                        song.filePath.endsWith(".$ext", ignoreCase = true) ||
+                            song.title.endsWith(".$ext", ignoreCase = true)
+                    }
+                }
             }
         }
 
-        // 2. Duration Category Filter
         list = when (draftDurationCategoryFilter) {
             "SHORT" -> list.filter { it.duration in 1..60000 }
             "MEDIUM" -> list.filter { it.duration in 60001..300000 }
@@ -83,25 +160,25 @@ fun SongFilterSortSheet(
             else -> list
         }
 
-        // 3. Special Attributes Filter
         list = when (draftAttributeFilter) {
             "FAVORITES" -> list.filter { uiState.favoriteSongIds.contains(it.id) }
             "RECENT" -> {
                 val thirtyDaysAgoSec = (System.currentTimeMillis() / 1000) - (30L * 24 * 3600)
                 list.filter { it.dateAdded >= thirtyDaysAgoSec }
             }
+            "MOST_PLAYED" -> list.filter { (uiState.playCounts[it.id] ?: 0) > 0 }
+            "UNPLAYED" -> list.filter { (uiState.playCounts[it.id] ?: 0) == 0 }
             "LOSSLESS" -> list.filter {
                 it.filePath.endsWith(".flac", true) ||
-                        it.filePath.endsWith(".wav", true) ||
-                        it.filePath.endsWith(".alac", true) ||
-                        it.filePath.endsWith(".aiff", true)
+                    it.filePath.endsWith(".wav", true) ||
+                    it.filePath.endsWith(".alac", true) ||
+                    it.filePath.endsWith(".aiff", true)
             }
             else -> list
         }
         list.size
     }
 
-    // Direction descriptive text
     val directionLabel = remember(draftSortOption, draftSortAscending) {
         when (draftSortOption) {
             SortOption.SONG_NAME, SortOption.ARTIST_NAME, SortOption.ALBUM_NAME, SortOption.FOLDER_NAME ->
@@ -119,44 +196,115 @@ fun SongFilterSortSheet(
         }
     }
 
+    val sortOptionsList = remember {
+        listOf(
+            SortChipItem(SortOption.TIME_ADDED, "Date Added", Icons.Rounded.CalendarToday),
+            SortChipItem(SortOption.SONG_NAME, "Title", Icons.Rounded.SortByAlpha),
+            SortChipItem(SortOption.ARTIST_NAME, "Artist", Icons.Rounded.Person),
+            SortChipItem(SortOption.ALBUM_NAME, "Album", Icons.Rounded.Album),
+            SortChipItem(SortOption.DURATION, "Duration", Icons.Rounded.Schedule),
+            SortChipItem(SortOption.FOLDER_NAME, "Folder", Icons.Rounded.Folder),
+            SortChipItem(SortOption.YEAR, "Year", Icons.Rounded.Event),
+            SortChipItem(SortOption.FILE_SIZE, "Size", Icons.Rounded.SdCard),
+            SortChipItem(SortOption.RANDOM, "Shuffle", Icons.Rounded.Shuffle)
+        )
+    }
+
+    val attributeOptions = remember {
+        listOf(
+            AttributeChipItem("ALL", "All Tracks", Icons.Rounded.LibraryMusic),
+            AttributeChipItem("FAVORITES", "Favorites", Icons.Rounded.Favorite, Icons.Rounded.FavoriteBorder),
+            AttributeChipItem("RECENT", "Added in 30 Days", Icons.Rounded.History),
+            AttributeChipItem("MOST_PLAYED", "Most Played", Icons.Rounded.TrendingUp),
+            AttributeChipItem("UNPLAYED", "Unplayed", Icons.Rounded.NewReleases),
+            AttributeChipItem("LOSSLESS", "Hi-Res / Lossless", Icons.Rounded.HighQuality)
+        )
+    }
+
+    val formatOptions = remember {
+        listOf(
+            "ALL" to "All",
+            "MP3" to "MP3",
+            "FLAC" to "FLAC (Hi-Res)",
+            "M4A" to "M4A / AAC",
+            "WAV" to "WAV",
+            "OGG" to "OGG / OPUS"
+        )
+    }
+
+    val durationOptions = remember {
+        listOf(
+            "ALL" to "Any Length",
+            "SHORT" to "< 1 min",
+            "MEDIUM" to "1 - 5 min",
+            "LONG" to "> 5 min"
+        )
+    }
+
+    val sheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        scrimColor = Color.Black.copy(alpha = 0.55f),
+        scrimColor = Color.Black.copy(alpha = 0.65f),
         dragHandle = null,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        shape = sheetShape
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(sheetShape)
+                .background(MaterialTheme.colorScheme.surface)
+                .border(
+                    width = 0.8.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                    shape = sheetShape
+                )
                 .navigationBarsPadding()
-                .padding(top = 18.dp, bottom = 20.dp)
+                .padding(bottom = 16.dp)
+                .testTag("song_filter_sort_sheet")
         ) {
-            // Compact Header Bar
+            // Centered 36dp x 4dp Drag Handle
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
+                )
+            }
+
+            // Compact High-Contrast Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
+                            .background(MaterialTheme.colorScheme.primary),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Tune,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -165,26 +313,26 @@ fun SongFilterSortSheet(
                             text = "Filter & Sort",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
+                                fontSize = 18.sp
                             ),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = "$draftMatchCount of ${uiState.songList.size} tracks",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium
                             ),
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Always-present Reset Icon Button
+                    // Uniform 36dp x 36dp Circular Reset Button
                     Surface(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -195,94 +343,95 @@ fun SongFilterSortSheet(
                             draftDurationCategoryFilter = "ALL"
                         },
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                        modifier = Modifier.size(32.dp)
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("filter_sheet_reset_button")
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Rounded.RestartAlt,
                                 contentDescription = "Reset filters",
                                 tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(17.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
 
-                    // Compact Close Icon Button
+                    // Uniform 36dp x 36dp Circular Close Button
                     Surface(
                         onClick = onDismiss,
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                        modifier = Modifier.size(32.dp)
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("filter_sheet_close_button")
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Rounded.Close,
                                 contentDescription = "Close",
                                 tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(17.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
                 }
             }
 
-            HorizontalDivider(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-            )
+            SheetHairlineDivider()
 
-            // Scrollable Content with Compact Spacing
+            // Scrollable Content — True Edge-to-Edge LazyRows separated by Hairline Dividers
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .verticalScroll(scrollState)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // ==========================================
-                // SECTION 1: SORT BY + DIRECTION TOGGLE
-                // ==========================================
+                // SECTION 1: SORT BY + INLINE DIRECTION TOGGLE
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    SlimSectionHeader(
+                    FilterSectionHeader(
                         icon = Icons.Rounded.Sort,
                         title = "Sort By"
                     )
 
                     if (draftSortOption != SortOption.RANDOM) {
-                        // Integrated Compact Order Direction Pill
                         Surface(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 draftSortAscending = !draftSortAscending
                             },
                             shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                            modifier = Modifier
+                                .height(30.dp)
+                                .testTag("filter_sort_direction_toggle")
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
                                 Icon(
                                     imageVector = if (draftSortAscending) Icons.Rounded.North else Icons.Rounded.South,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(13.dp)
+                                    contentDescription = "Toggle sort direction",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(14.dp)
                                 )
                                 Text(
                                     text = directionLabel,
                                     style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.5.sp
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 12.sp
                                     ),
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -291,232 +440,209 @@ fun SongFilterSortSheet(
                     }
                 }
 
-                val sortOptionsList = listOf(
-                    Triple(SortOption.TIME_ADDED, "Date Added", Icons.Rounded.CalendarToday),
-                    Triple(SortOption.SONG_NAME, "Title", Icons.Rounded.SortByAlpha),
-                    Triple(SortOption.ARTIST_NAME, "Artist", Icons.Rounded.Person),
-                    Triple(SortOption.ALBUM_NAME, "Album", Icons.Rounded.Album),
-                    Triple(SortOption.DURATION, "Duration", Icons.Rounded.Schedule),
-                    Triple(SortOption.FOLDER_NAME, "Folder", Icons.Rounded.Folder),
-                    Triple(SortOption.YEAR, "Year", Icons.Rounded.Event),
-                    Triple(SortOption.FILE_SIZE, "Size", Icons.Rounded.SdCard),
-                    Triple(SortOption.RANDOM, "Shuffle", Icons.Rounded.Shuffle)
-                )
-
-                // Compact Horizontal Scroll for Sort Options
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    sortOptionsList.forEach { (option, label, icon) ->
-                        val isSelected = draftSortOption == option
-                        SlimFilterChip(
-                            label = label,
-                            icon = icon,
+                    items(sortOptionsList, key = { it.option.name }) { item ->
+                        val isSelected = draftSortOption == item.option
+                        HighContrastFilterPill(
+                            label = item.label,
+                            icon = item.icon,
                             isSelected = isSelected,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (draftSortOption == option) {
+                                if (draftSortOption == item.option) {
                                     draftSortAscending = !draftSortAscending
                                 } else {
-                                    draftSortOption = option
-                                    draftSortAscending = true
+                                    draftSortOption = item.option
+                                    draftSortAscending = item.option != SortOption.TIME_ADDED
                                 }
-                            }
+                            },
+                            testTag = "filter_sort_${item.option.name.lowercase()}"
                         )
                     }
                 }
 
-                // ==========================================
-                // SECTION 2: SPECIAL FILTERS
-                // ==========================================
-                SlimSectionHeader(
-                    icon = Icons.Rounded.AutoAwesome,
-                    title = "Filter Attributes"
-                )
+                Spacer(modifier = Modifier.height(14.dp))
+                SheetHairlineDivider()
 
-                val attributes = listOf(
-                    Triple("ALL", "All Tracks", Icons.Rounded.LibraryMusic),
-                    Triple("FAVORITES", "Favorites ❤️", Icons.Rounded.Favorite),
-                    Triple("RECENT", "Added in 30 Days", Icons.Rounded.History),
-                    Triple("LOSSLESS", "Hi-Res / Lossless", Icons.Rounded.HighQuality)
-                )
+                // SECTION 2: FILTER ATTRIBUTES
+                Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
+                    FilterSectionHeader(
+                        icon = Icons.Rounded.AutoAwesome,
+                        title = "Filter Attributes"
+                    )
+                }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    attributes.forEach { (code, label, icon) ->
-                        val isSelected = draftAttributeFilter == code
-                        SlimFilterChip(
-                            label = label,
-                            icon = icon,
+                    items(attributeOptions, key = { it.code }) { item ->
+                        val isSelected = draftAttributeFilter == item.code
+                        HighContrastFilterPill(
+                            label = item.label,
+                            icon = if (isSelected) item.selectedIcon else item.unselectedIcon,
                             isSelected = isSelected,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                draftAttributeFilter = code
-                            }
+                                draftAttributeFilter = item.code
+                            },
+                            testTag = "filter_attr_${item.code.lowercase()}"
                         )
                     }
                 }
 
-                // ==========================================
+                Spacer(modifier = Modifier.height(14.dp))
+                SheetHairlineDivider()
+
                 // SECTION 3: AUDIO FORMAT
-                // ==========================================
-                SlimSectionHeader(
-                    icon = Icons.Rounded.AudioFile,
-                    title = "Audio Format"
-                )
+                Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
+                    FilterSectionHeader(
+                        icon = Icons.Rounded.AudioFile,
+                        title = "Audio Format"
+                    )
+                }
 
-                val formats = listOf(
-                    "ALL" to "All",
-                    "MP3" to "MP3",
-                    "FLAC" to "FLAC (Hi-Res)",
-                    "M4A" to "M4A / AAC",
-                    "WAV" to "WAV",
-                    "OGG" to "OGG / OPUS"
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    formats.forEach { (code, label) ->
+                    items(formatOptions, key = { it.first }) { (code, label) ->
                         val isSelected = draftFormatFilter == code
-                        SlimFilterChip(
+                        HighContrastFilterPill(
                             label = label,
+                            icon = null,
                             isSelected = isSelected,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 draftFormatFilter = code
-                            }
+                            },
+                            testTag = "filter_format_${code.lowercase()}"
                         )
                     }
                 }
 
-                // ==========================================
+                Spacer(modifier = Modifier.height(14.dp))
+                SheetHairlineDivider()
+
                 // SECTION 4: TRACK LENGTH
-                // ==========================================
-                SlimSectionHeader(
-                    icon = Icons.Rounded.Timer,
-                    title = "Track Length"
-                )
+                Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
+                    FilterSectionHeader(
+                        icon = Icons.Rounded.Timer,
+                        title = "Track Length"
+                    )
+                }
 
-                val durationCategories = listOf(
-                    "ALL" to "Any Length",
-                    "SHORT" to "< 1 min",
-                    "MEDIUM" to "1 - 5 min",
-                    "LONG" to "> 5 min"
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    durationCategories.forEach { (code, label) ->
+                    items(durationOptions, key = { it.first }) { (code, label) ->
                         val isSelected = draftDurationCategoryFilter == code
-                        SlimFilterChip(
+                        HighContrastFilterPill(
                             label = label,
+                            icon = null,
                             isSelected = isSelected,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 draftDurationCategoryFilter = code
-                            }
+                            },
+                            testTag = "filter_length_${code.lowercase()}"
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Compact Bottom Apply Button (Commits draft state)
-            Box(
+            // Full-Pill 48dp Apply CTA
+            Button(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    viewModel.applySongFiltersAndSort(
+                        sortOption = draftSortOption,
+                        sortAscending = draftSortAscending,
+                        formatFilter = draftFormatFilter,
+                        durationCategoryFilter = draftDurationCategoryFilter,
+                        attributeFilter = draftAttributeFilter
+                    )
+                    onDismiss()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .height(48.dp)
+                    .testTag("filter_sheet_apply_button"),
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp)
             ) {
-                Button(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.applySongFiltersAndSort(
-                            sortOption = draftSortOption,
-                            sortAscending = draftSortAscending,
-                            formatFilter = draftFormatFilter,
-                            durationCategoryFilter = draftDurationCategoryFilter,
-                            attributeFilter = draftAttributeFilter
-                        )
-                        onDismiss()
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp),
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(19.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Apply ($draftMatchCount tracks)",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.5.sp
                     ),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Apply ($draftMatchCount tracks)",
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
-                    )
-                }
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
             }
         }
     }
 }
 
-// -------------------------------------------------------------------------
-// COMPACT REUSABLE SUB-COMPONENTS
-// -------------------------------------------------------------------------
+@Composable
+private fun SheetHairlineDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 16.dp),
+        thickness = 0.5.dp,
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+    )
+}
 
 @Composable
-private fun SlimSectionHeader(
+private fun FilterSectionHeader(
     icon: ImageVector,
     title: String
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(vertical = 4.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(24.dp)
+                .size(28.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)),
+                .background(MaterialTheme.colorScheme.primary),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(13.dp)
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(15.dp)
             )
         }
         Text(
             text = title,
-            style = MaterialTheme.typography.labelMedium.copy(
+            style = MaterialTheme.typography.titleSmall.copy(
                 fontWeight = FontWeight.Bold,
-                fontSize = 13.sp
+                fontSize = 14.sp
             ),
             color = MaterialTheme.colorScheme.onSurface
         )
@@ -524,25 +650,47 @@ private fun SlimSectionHeader(
 }
 
 @Composable
-private fun SlimFilterChip(
+private fun HighContrastFilterPill(
     label: String,
+    icon: ImageVector?,
     isSelected: Boolean,
-    icon: ImageVector? = null,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    testTag: String
 ) {
+    val bgColor by animateColorAsState(
+        targetValue = if (isSelected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        animationSpec = tween(160),
+        label = "filter_pill_bg"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (isSelected) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        animationSpec = tween(160),
+        label = "filter_pill_fg"
+    )
+
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = if (isSelected) MaterialTheme.colorScheme.primary 
-                else MaterialTheme.colorScheme.surfaceVariant,
+        color = bgColor,
         border = if (isSelected) {
             null
         } else {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-        }
+            BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        },
+        modifier = Modifier
+            .height(36.dp)
+            .testTag(testTag)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            modifier = Modifier.padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -550,20 +698,19 @@ private fun SlimFilterChip(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimary 
-                           else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(14.dp)
+                    tint = contentColor,
+                    modifier = Modifier.size(16.dp)
                 )
             }
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelSmall.copy(
+                style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    fontSize = 12.sp
+                    fontSize = 13.sp
                 ),
-                color = if (isSelected) MaterialTheme.colorScheme.onPrimary 
-                       else MaterialTheme.colorScheme.onSurface,
+                color = contentColor,
                 maxLines = 1,
+                softWrap = false,
                 overflow = TextOverflow.Ellipsis
             )
         }

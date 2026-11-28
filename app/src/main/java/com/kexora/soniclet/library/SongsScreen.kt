@@ -61,8 +61,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.items
@@ -293,43 +296,20 @@ fun SongsLibraryView(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "0 Tracks",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(start = 4.dp)
+                            color = MaterialTheme.colorScheme.onSurface
                         )
 
-                        Surface(
-                            onClick = { showSortSheet = true },
-                            shape = CircleShape,
-                            color = if (isFilterActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                            border = BorderStroke(1.dp, if (isFilterActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Tune,
-                                    contentDescription = "Sort & Filter",
-                                    tint = if (isFilterActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(19.dp)
-                                )
-                                if (isFilterActive) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .align(Alignment.TopEnd)
-                                            .offset(x = (-3).dp, y = 3.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primary)
-                                    )
-                                }
-                            }
-                        }
+                        SongsCircularFilterButton(
+                            isFilterActive = isFilterActive,
+                            onClick = { showSortSheet = true }
+                        )
                     }
 
                     Box(
@@ -509,213 +489,18 @@ fun SongsLibraryView(
                                     }
                                 }
 
-                                 item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Button(
-                                                onClick = {
-                                                    if (uiState.filteredSongList.isNotEmpty()) {
-                                                        viewModel.playQueue(uiState.filteredSongList, 0, "All Tracks")
-                                                    }
-                                                },
-                                                modifier = Modifier.height(38.dp),
-                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-                                                shape = CircleShape,
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = MaterialTheme.colorScheme.primary,
-                                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                                )
-                                            ) {
-                                                Icon(Icons.Default.PlayArrow, contentDescription = "Play", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = "Play",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp,
-                                                    color = MaterialTheme.colorScheme.onPrimary,
-                                                    maxLines = 1,
-                                                    softWrap = false,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-
-                                            FilledTonalButton(
-                                                onClick = {
-                                                    if (uiState.filteredSongList.isNotEmpty()) {
-                                                        viewModel.playSmartShuffled(uiState.filteredSongList, "All Tracks")
-                                                    }
-                                                },
-                                                modifier = Modifier.height(38.dp),
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                                shape = CircleShape,
-                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                                                colors = ButtonDefaults.filledTonalButtonColors(
-                                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                    contentColor = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            ) {
-                                                Icon(Icons.Default.AutoAwesome, contentDescription = "Smart Shuffle", modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.primary)
-                                                Spacer(modifier = Modifier.width(5.dp))
-                                                Text(
-                                                    text = "Smart",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    maxLines = 1,
-                                                    softWrap = false,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                            
-                                            FilledTonalButton(
-                                                onClick = {
-                                                    if (uiState.filteredSongList.isNotEmpty()) {
-                                                        if (!uiState.isShuffleEnabled) {
-                                                            viewModel.toggleShuffle()
-                                                        }
-                                                        val shuffled = uiState.filteredSongList.shuffled()
-                                                        viewModel.playQueue(shuffled, 0, "All Tracks (Shuffle)")
-                                                    }
-                                                },
-                                                modifier = Modifier.height(38.dp),
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                                shape = CircleShape,
-                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                                                colors = ButtonDefaults.filledTonalButtonColors(
-                                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                    contentColor = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            ) {
-                                                Icon(Icons.Default.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.primary)
-                                                Spacer(modifier = Modifier.width(5.dp))
-                                                Text(
-                                                    text = "Shuffle",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    maxLines = 1,
-                                                    softWrap = false,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                        
-                                        val isGridFilterActive = uiState.sortOption != SortOption.TIME_ADDED ||
-                                                uiState.sortAscending ||
-                                                uiState.formatFilter != "ALL" ||
-                                                uiState.durationCategoryFilter != "ALL" ||
-                                                uiState.attributeFilter != "ALL"
-
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Surface(
-                                                onClick = { showSortSheet = true },
-                                                shape = CircleShape,
-                                                color = if (isGridFilterActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                                border = BorderStroke(1.dp, if (isGridFilterActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                                                modifier = Modifier.size(38.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.Tune, 
-                                                        contentDescription = "Sort & Filter",
-                                                        tint = if (isGridFilterActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                                        modifier = Modifier.size(19.dp)
-                                                    )
-                                                    if (isGridFilterActive) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(8.dp)
-                                                                .align(Alignment.TopEnd)
-                                                                .offset(x = (-3).dp, y = 3.dp)
-                                                                .clip(CircleShape)
-                                                                .background(MaterialTheme.colorScheme.primary)
-                                                        )
-                                                    }
-                                                }
-                                            }
-
-                                            Box {
-                                                Surface(
-                                                    onClick = { showSongHeaderMenu = true },
-                                                    shape = CircleShape,
-                                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                                                    modifier = Modifier.size(38.dp)
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center) {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.MoreVert,
-                                                            contentDescription = "More Options",
-                                                            tint = MaterialTheme.colorScheme.onSurface,
-                                                            modifier = Modifier.size(19.dp)
-                                                        )
-                                                    }
-                                                }
-                                                DropContext(
-                                                    expanded = showSongHeaderMenu,
-                                                    onDismissRequest = { showSongHeaderMenu = false }
-                                                ) {
-                                                    DropContextItem(
-                                                        text = if (uiState.selectedSongIds.size == uiState.filteredSongList.size && uiState.filteredSongList.isNotEmpty()) "Deselect All" else "Select All (${uiState.filteredSongList.size})",
-                                                        icon = Icons.Rounded.SelectAll,
-                                                        index = 0,
-                                                        onClick = {
-                                                            showSongHeaderMenu = false
-                                                            if (uiState.selectedSongIds.size == uiState.filteredSongList.size && uiState.filteredSongList.isNotEmpty()) {
-                                                                viewModel.clearSelectedSongs()
-                                                            } else {
-                                                                viewModel.selectAllSongs(uiState.filteredSongList.map { it.id })
-                                                            }
-                                                        }
-                                                    )
-                                                    DropContextItem(
-                                                        text = "Share Multiple Songs...",
-                                                        icon = Icons.Rounded.Share,
-                                                        index = 1,
-                                                        onClick = {
-                                                            showSongHeaderMenu = false
-                                                            if (uiState.selectedSongIds.isEmpty()) {
-                                                                if (uiState.filteredSongList.isNotEmpty()) {
-                                                                    viewModel.toggleSongSelection(uiState.filteredSongList.first().id)
-                                                                }
-                                                                android.widget.Toast.makeText(context, "Select songs to share, then tap Share in floating bar", android.widget.Toast.LENGTH_SHORT).show()
-                                                            } else {
-                                                                viewModel.shareSelectedSongs(context)
-                                                            }
-                                                        }
-                                                    )
-                                                    DropContextItem(
-                                                        text = "Refresh Library",
-                                                        icon = Icons.Rounded.Refresh,
-                                                        index = 2,
-                                                        onClick = {
-                                                            showSongHeaderMenu = false
-                                                            viewModel.rescanStorage()
-                                                        }
-                                                    )
-                                                    DropContextItem(
-                                                        text = "Reset Filters",
-                                                        icon = Icons.Rounded.RestartAlt,
-                                                        index = 3,
-                                                        onClick = {
-                                                            showSongHeaderMenu = false
-                                                            viewModel.resetAllSongFilters()
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
+                                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                    SongsTopActionBar(
+                                        uiState = uiState,
+                                        viewModel = viewModel,
+                                        showSongHeaderMenu = showSongHeaderMenu,
+                                        onShowSongHeaderMenuChange = { showSongHeaderMenu = it },
+                                        onOpenSortSheet = { showSortSheet = true },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp)
+                                            .padding(bottom = 8.dp)
+                                    )
                                 }
 
                                 items(
@@ -780,214 +565,17 @@ fun SongsLibraryView(
                                 }
 
                                 item {
-                                    Row(
+                                    SongsTopActionBar(
+                                        uiState = uiState,
+                                        viewModel = viewModel,
+                                        showSongHeaderMenu = showSongHeaderMenu,
+                                        onShowSongHeaderMenuChange = { showSongHeaderMenu = it },
+                                        onOpenSortSheet = { showSortSheet = true },
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(bottom = 8.dp, start = 12.dp, end = 12.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Button(
-                                                onClick = {
-                                                    if (uiState.filteredSongList.isNotEmpty()) {
-                                                        viewModel.playQueue(uiState.filteredSongList, 0, "All Tracks")
-                                                    }
-                                                },
-                                                modifier = Modifier.height(38.dp),
-                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-                                                shape = CircleShape,
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = MaterialTheme.colorScheme.primary,
-                                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                                )
-                                            ) {
-                                                Icon(Icons.Default.PlayArrow, contentDescription = "Play", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = "Play",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp,
-                                                    color = MaterialTheme.colorScheme.onPrimary,
-                                                    maxLines = 1,
-                                                    softWrap = false,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-
-                                            FilledTonalButton(
-                                                onClick = {
-                                                    if (uiState.filteredSongList.isNotEmpty()) {
-                                                        viewModel.playSmartShuffled(uiState.filteredSongList, "All Tracks")
-                                                    }
-                                                },
-                                                modifier = Modifier.height(38.dp),
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                                shape = CircleShape,
-                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                                                colors = ButtonDefaults.filledTonalButtonColors(
-                                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                    contentColor = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            ) {
-                                                Icon(Icons.Default.AutoAwesome, contentDescription = "Smart Shuffle", modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.primary)
-                                                Spacer(modifier = Modifier.width(5.dp))
-                                                Text(
-                                                    text = "Smart",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    maxLines = 1,
-                                                    softWrap = false,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                            
-                                            FilledTonalButton(
-                                                onClick = {
-                                                    if (uiState.filteredSongList.isNotEmpty()) {
-                                                        if (!uiState.isShuffleEnabled) {
-                                                            viewModel.toggleShuffle()
-                                                        }
-                                                        val shuffled = uiState.filteredSongList.shuffled()
-                                                        viewModel.playQueue(shuffled, 0, "All Tracks (Shuffle)")
-                                                    }
-                                                },
-                                                modifier = Modifier.height(38.dp),
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                                shape = CircleShape,
-                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                                                colors = ButtonDefaults.filledTonalButtonColors(
-                                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                    contentColor = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            ) {
-                                                Icon(Icons.Default.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.primary)
-                                                Spacer(modifier = Modifier.width(5.dp))
-                                                Text(
-                                                    text = "Shuffle",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    maxLines = 1,
-                                                    softWrap = false,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                        
-                                        val isListFilterActive = uiState.sortOption != SortOption.TIME_ADDED ||
-                                                uiState.sortAscending ||
-                                                uiState.formatFilter != "ALL" ||
-                                                uiState.durationCategoryFilter != "ALL" ||
-                                                uiState.attributeFilter != "ALL"
-
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Surface(
-                                                onClick = { showSortSheet = true },
-                                                shape = CircleShape,
-                                                color = if (isListFilterActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                                border = BorderStroke(1.dp, if (isListFilterActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                                                modifier = Modifier.size(38.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.Tune, 
-                                                        contentDescription = "Sort & Filter",
-                                                        tint = if (isListFilterActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                                        modifier = Modifier.size(19.dp)
-                                                    )
-                                                    if (isListFilterActive) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(8.dp)
-                                                                .align(Alignment.TopEnd)
-                                                                .offset(x = (-3).dp, y = 3.dp)
-                                                                .clip(CircleShape)
-                                                                .background(MaterialTheme.colorScheme.primary)
-                                                        )
-                                                    }
-                                                }
-                                            }
-
-                                            Box {
-                                                Surface(
-                                                    onClick = { showSongHeaderMenu = true },
-                                                    shape = CircleShape,
-                                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                                                    modifier = Modifier.size(38.dp)
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center) {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.MoreVert,
-                                                            contentDescription = "More Options",
-                                                            tint = MaterialTheme.colorScheme.onSurface,
-                                                            modifier = Modifier.size(19.dp)
-                                                        )
-                                                    }
-                                                }
-                                                DropContext(
-                                                    expanded = showSongHeaderMenu,
-                                                    onDismissRequest = { showSongHeaderMenu = false }
-                                                ) {
-                                                    DropContextItem(
-                                                        text = if (uiState.selectedSongIds.size == uiState.filteredSongList.size && uiState.filteredSongList.isNotEmpty()) "Deselect All" else "Select All (${uiState.filteredSongList.size})",
-                                                        icon = Icons.Rounded.SelectAll,
-                                                        index = 0,
-                                                        onClick = {
-                                                            showSongHeaderMenu = false
-                                                            if (uiState.selectedSongIds.size == uiState.filteredSongList.size && uiState.filteredSongList.isNotEmpty()) {
-                                                                viewModel.clearSelectedSongs()
-                                                            } else {
-                                                                viewModel.selectAllSongs(uiState.filteredSongList.map { it.id })
-                                                            }
-                                                        }
-                                                    )
-                                                    DropContextItem(
-                                                        text = "Share Multiple Songs...",
-                                                        icon = Icons.Rounded.Share,
-                                                        index = 1,
-                                                        onClick = {
-                                                            showSongHeaderMenu = false
-                                                            if (uiState.selectedSongIds.isEmpty()) {
-                                                                if (uiState.filteredSongList.isNotEmpty()) {
-                                                                    viewModel.toggleSongSelection(uiState.filteredSongList.first().id)
-                                                                }
-                                                                android.widget.Toast.makeText(context, "Select songs to share, then tap Share in floating bar", android.widget.Toast.LENGTH_SHORT).show()
-                                                            } else {
-                                                                viewModel.shareSelectedSongs(context)
-                                                            }
-                                                        }
-                                                    )
-                                                    DropContextItem(
-                                                        text = "Refresh Library",
-                                                        icon = Icons.Rounded.Refresh,
-                                                        index = 2,
-                                                        onClick = {
-                                                            showSongHeaderMenu = false
-                                                            viewModel.rescanStorage()
-                                                        }
-                                                    )
-                                                    DropContextItem(
-                                                        text = "Reset Filters",
-                                                        icon = Icons.Rounded.RestartAlt,
-                                                        index = 3,
-                                                        onClick = {
-                                                            showSongHeaderMenu = false
-                                                            viewModel.resetAllSongFilters()
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
+                                            .padding(horizontal = 16.dp)
+                                            .padding(bottom = 8.dp)
+                                    )
                                 }
                                 items(
                                     items = uiState.filteredSongList,
@@ -1261,3 +849,302 @@ fun SongGridItem(
         }
     }
 }
+
+@Composable
+private fun SongsTopActionBar(
+    uiState: MusicUiState,
+    viewModel: MusicViewModel,
+    showSongHeaderMenu: Boolean,
+    onShowSongHeaderMenuChange: (Boolean) -> Unit,
+    onOpenSortSheet: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val isFilterActive = uiState.sortOption != SortOption.TIME_ADDED ||
+            uiState.sortAscending ||
+            uiState.formatFilter != "ALL" ||
+            uiState.durationCategoryFilter != "ALL" ||
+            uiState.attributeFilter != "ALL"
+
+    val allSelected = uiState.filteredSongList.isNotEmpty() &&
+            uiState.selectedSongIds.size >= uiState.filteredSongList.size
+
+    val pillBorder = BorderStroke(
+        width = 0.6.dp,
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    )
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Left pills scroll gracefully on ultra-narrow viewports so right circles never squish
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Play Pill
+            Surface(
+                onClick = {
+                    if (uiState.filteredSongList.isNotEmpty()) {
+                        viewModel.playQueue(uiState.filteredSongList, 0, "All Tracks")
+                    }
+                },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .height(38.dp)
+                    .testTag("songs_play_all_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PlayArrow,
+                        contentDescription = "Play all songs",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Play",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            // Smart Shuffle Pill
+            Surface(
+                onClick = {
+                    if (uiState.filteredSongList.isNotEmpty()) {
+                        viewModel.playSmartShuffled(uiState.filteredSongList, "All Tracks")
+                    }
+                },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = pillBorder,
+                modifier = Modifier
+                    .height(38.dp)
+                    .testTag("songs_smart_shuffle_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = "Smart shuffle",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Smart",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            // Shuffle Pill
+            Surface(
+                onClick = {
+                    if (uiState.filteredSongList.isNotEmpty()) {
+                        viewModel.playQueue(
+                            uiState.filteredSongList.shuffled(),
+                            0,
+                            "All Tracks (Shuffled)"
+                        )
+                    }
+                },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = pillBorder,
+                modifier = Modifier
+                    .height(38.dp)
+                    .testTag("songs_shuffle_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Shuffle,
+                        contentDescription = "Shuffle all songs",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Shuffle",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // Right fixed true-circle utility buttons
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SongsCircularFilterButton(
+                isFilterActive = isFilterActive,
+                onClick = onOpenSortSheet
+            )
+
+            Box {
+                Surface(
+                    onClick = { onShowSongHeaderMenuChange(true) },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = pillBorder,
+                    modifier = Modifier
+                        .requiredSize(38.dp)
+                        .testTag("songs_more_options_button")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = "More song options",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                }
+
+                DropContext(
+                    expanded = showSongHeaderMenu,
+                    onDismissRequest = { onShowSongHeaderMenuChange(false) }
+                ) {
+                    DropContextItem(
+                        text = if (allSelected) "Deselect All" else "Select All",
+                        icon = if (allSelected) Icons.Rounded.Deselect else Icons.Rounded.SelectAll,
+                        index = 0,
+                        onClick = {
+                            onShowSongHeaderMenuChange(false)
+                            if (allSelected) {
+                                viewModel.clearSelectedSongs()
+                            } else {
+                                viewModel.selectAllSongs(uiState.filteredSongList.map { it.id })
+                            }
+                        }
+                    )
+                    DropContextItem(
+                        text = "Share Multiple Songs...",
+                        icon = Icons.Rounded.Share,
+                        index = 1,
+                        onClick = {
+                            onShowSongHeaderMenuChange(false)
+                            if (uiState.selectedSongIds.isNotEmpty()) {
+                                viewModel.shareSelectedSongs(context)
+                            } else if (uiState.filteredSongList.isNotEmpty()) {
+                                viewModel.toggleSongSelection(uiState.filteredSongList.first().id)
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Tap songs to select, then tap Share",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    )
+                    DropContextItem(
+                        text = "Refresh Library",
+                        icon = Icons.Rounded.Refresh,
+                        index = 2,
+                        onClick = {
+                            onShowSongHeaderMenuChange(false)
+                            viewModel.rescanStorage()
+                        }
+                    )
+                    if (isFilterActive) {
+                        DropContextItem(
+                            text = "Reset Filters",
+                            icon = Icons.Rounded.RestartAlt,
+                            iconTint = MaterialTheme.colorScheme.primary,
+                            index = 3,
+                            onClick = {
+                                onShowSongHeaderMenuChange(false)
+                                viewModel.resetAllSongFilters()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SongsCircularFilterButton(
+    isFilterActive: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier.requiredSize(38.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            onClick = onClick,
+            shape = CircleShape,
+            color = if (isFilterActive) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            },
+            border = BorderStroke(
+                width = 0.6.dp,
+                color = if (isFilterActive) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                }
+            ),
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("songs_filter_sort_button")
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Rounded.Tune,
+                    contentDescription = "Filter and sort songs",
+                    tint = if (isFilterActive) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier.size(19.dp)
+                )
+            }
+        }
+
+        if (isFilterActive) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-2).dp, y = 2.dp)
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+        }
+    }
+}
+

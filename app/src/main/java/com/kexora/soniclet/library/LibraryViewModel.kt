@@ -595,7 +595,8 @@ internal class LibraryViewModel(
         formatFilter: String = vm._uiState.value.formatFilter,
         durationCategoryFilter: String = vm._uiState.value.durationCategoryFilter,
         attributeFilter: String = vm._uiState.value.attributeFilter,
-        favoriteSongIds: Set<Long> = vm._uiState.value.favoriteSongIds
+        favoriteSongIds: Set<Long> = vm._uiState.value.favoriteSongIds,
+        playCounts: Map<Long, Int> = vm._uiState.value.playCounts
     ): List<Song> {
         var filtered = if (query.isBlank()) songs else {
             songs.filter { song ->
@@ -607,9 +608,22 @@ internal class LibraryViewModel(
         }
 
         if (formatFilter != "ALL") {
-            val ext = formatFilter.lowercase()
-            filtered = filtered.filter { song ->
-                song.filePath.endsWith(".$ext", ignoreCase = true) || song.title.endsWith(".$ext", ignoreCase = true)
+            filtered = when (formatFilter.uppercase()) {
+                "M4A" -> filtered.filter { song ->
+                    song.filePath.endsWith(".m4a", true) || song.filePath.endsWith(".aac", true) ||
+                        song.title.endsWith(".m4a", true) || song.title.endsWith(".aac", true)
+                }
+                "OGG" -> filtered.filter { song ->
+                    song.filePath.endsWith(".ogg", true) || song.filePath.endsWith(".opus", true) ||
+                        song.title.endsWith(".ogg", true) || song.title.endsWith(".opus", true)
+                }
+                else -> {
+                    val ext = formatFilter.lowercase()
+                    filtered.filter { song ->
+                        song.filePath.endsWith(".$ext", ignoreCase = true) ||
+                            song.title.endsWith(".$ext", ignoreCase = true)
+                    }
+                }
             }
         }
 
@@ -626,6 +640,8 @@ internal class LibraryViewModel(
                 val thirtyDaysAgoSec = (System.currentTimeMillis() / 1000) - (30L * 24 * 3600)
                 filtered.filter { it.dateAdded >= thirtyDaysAgoSec }
             }
+            "MOST_PLAYED" -> filtered.filter { (playCounts[it.id] ?: 0) > 0 }
+            "UNPLAYED" -> filtered.filter { (playCounts[it.id] ?: 0) == 0 }
             "LOSSLESS" -> filtered.filter {
                 it.filePath.endsWith(".flac", true) ||
                     it.filePath.endsWith(".wav", true) ||
@@ -635,22 +651,24 @@ internal class LibraryViewModel(
             else -> filtered
         }
 
-        var sorted = when (sortOption) {
-            SortOption.SONG_NAME -> filtered.sortedBy { it.title.lowercase() }
-            SortOption.ARTIST_NAME -> filtered.sortedBy { it.artist.lowercase() }
-            SortOption.ALBUM_NAME -> filtered.sortedBy { it.album.lowercase() }
-            SortOption.TIME_ADDED -> filtered.sortedBy { it.dateAdded }
-            SortOption.DURATION -> filtered.sortedBy { it.duration }
-            SortOption.FOLDER_NAME -> filtered.sortedBy { it.folderName.lowercase() }
-            SortOption.YEAR -> filtered.sortedBy { it.year }
-            SortOption.FILE_SIZE -> filtered.sortedBy {
-                try { File(it.filePath).length() } catch (_: Exception) { 0L }
+        var sorted = if (attributeFilter == "MOST_PLAYED" && sortOption == SortOption.TIME_ADDED && !sortAscending) {
+            filtered.sortedByDescending { playCounts[it.id] ?: 0 }
+        } else {
+            when (sortOption) {
+                SortOption.SONG_NAME -> filtered.sortedBy { it.title.lowercase() }
+                SortOption.ARTIST_NAME -> filtered.sortedBy { it.artist.lowercase() }
+                SortOption.ALBUM_NAME -> filtered.sortedBy { it.album.lowercase() }
+                SortOption.TIME_ADDED -> filtered.sortedBy { it.dateAdded }
+                SortOption.DURATION -> filtered.sortedBy { it.duration }
+                SortOption.FOLDER_NAME -> filtered.sortedBy { it.folderName.lowercase() }
+                SortOption.YEAR -> filtered.sortedBy { it.year }
+                SortOption.FILE_SIZE -> filtered.sortedBy {
+                    try { File(it.filePath).length() } catch (_: Exception) { 0L }
+                }
+                SortOption.RANDOM -> filtered.shuffled()
+            }.let { list ->
+                if (!sortAscending && sortOption != SortOption.RANDOM) list.reversed() else list
             }
-            SortOption.RANDOM -> filtered.shuffled()
-        }
-
-        if (!sortAscending && sortOption != SortOption.RANDOM) {
-            sorted = sorted.reversed()
         }
         return sorted
     }
