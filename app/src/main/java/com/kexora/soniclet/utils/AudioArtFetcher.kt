@@ -1,28 +1,28 @@
 package com.kexora.soniclet.utils
 
-import android.content.ContentUris
 import android.content.Context
-import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
-import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.os.Build
-import android.provider.MediaStore
-import android.util.Size
 import coil.ImageLoader
 import coil.decode.DataSource
 import coil.fetch.DrawableResult
 import coil.fetch.FetchResult
 import coil.fetch.Fetcher
+import coil.key.Keyer
 import coil.request.Options
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileNotFoundException
 
 /**
- * Custom Coil Fetcher that intelligently resolves audio album art on modern Android.
- * If the legacy MediaStore albumart URI cannot be opened directly, this fetcher extracts
- * the embedded cover art from the underlying audio file via ContentResolver.loadThumbnail
- * (API 29+) or MediaMetadataRetriever embedded picture bytes.
+ * Strict Per-Song Coil Fetcher — completely eliminates Android MediaStore shared albumId pollution.
+ *
+ * Resolution Order (100% isolated per track):
+ *  1. User custom artwork saved strictly for this songId in CustomArtworkManager.
+ *  2. Track's own embedded picture via MediaMetadataRetriever on exact audio URI (safe sampled decode <= 640px, always released in finally).
+ *  3. Clean failure -> Coil triggers FallbackAlbumArt. NEVER opens content://media/external/audio/albumart/$albumId or ContentResolver.loadThumbnail().
  */
 class AudioArtFetcher(
     private val context: Context,
@@ -30,169 +30,102 @@ class AudioArtFetcher(
     private val options: Options
 ) : Fetcher {
 
-    override suspend fun fetch(): FetchResult? = withContext(Dispatchers.IO) {
-        val uriStr = uri.toString()
-        val isAlbumArtUri = uriStr.contains("media/external/audio/albumart")
-        val isAudioMediaUri = uriStr.contains("media/external/audio/media")
-
-        if (!isAlbumArtUri && !isAudioMediaUri) {
-            return@withContext null
+    override suspend fun fetch(): FetchResult = withContext(Dispatchers.IO) {
+        // Hard block: NEVER resolve legacy MediaStore shared albumart URIs
+        if (CustomArtworkManager.isLegacySharedAlbumArtUri(uri)) {
+            throw FileNotFoundException("Blocked shared MediaStore albumart URI: $uri")
         }
 
-        // 1. If it's an albumart URI, first check if a custom artwork was saved by user
-        if (isAlbumArtUri) {
-            val albumId = uri.lastPathSegment?.toLongOrNull()
-            if (albumId != null && albumId > 0) {
-                val songId = findSongIdForAlbum(albumId)
-                if (songId != null) {
-                    val customArt = CustomArtworkManager.getCustomArtworkUri(context, songId)
-                    if (customArt?.path != null) {
-                        try {
-                            val bitmap = BitmapFactory.decodeFile(customArt.path)
-                            if (bitmap != null) {
-                                return@withContext DrawableResult(
-                                    drawable = BitmapDrawable(context.resources, bitmap),
-                                    isSampled = false,
-                                    dataSource = DataSource.DISK
-                                )
-                            }
-                        } catch (_: Exception) {}
-                    }
-                }
-            }
+        val songId = extractSongId(uri)
+        val bitmapConfig = if (options.allowRgb565) Bitmap.Config.RGB_565 else Bitmap.Config.ARGB_8888
 
-            // Direct input stream opening
-            try {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    val bitmap = BitmapFactory.decodeStream(stream)
-                    if (bitmap != null) {
-                        return@withContext DrawableResult(
-                            drawable = BitmapDrawable(context.resources, bitmap),
-                            isSampled = false,
-                            dataSource = DataSource.DISK
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                // MediaStore albumart file does not exist or threw FileNotFoundException on Android 10+
-            }
+        // Strict 3-Step per-song resolution (Step 1: CustomArtworkManager, Step 2: MediaMetadataRetriever)
+        val bitmap = CustomArtworkManager.loadStrictSongArtworkBitmap(
+            context = context,
+            songId = songId,
+            audioUri = uri,
+            maxDimPx = MAX_ART_DIMENSION_PX,
+            preferredConfig = bitmapConfig
+        )
 
-            // 2. Find a song belonging to this albumId to retrieve embedded picture
-            if (albumId != null && albumId > 0) {
-                val songUri = findSongUriForAlbum(albumId)
-                if (songUri != null) {
-                    val artResult = extractArtFromAudioUri(songUri)
-                    if (artResult != null) return@withContext artResult
-                }
-            }
+        if (bitmap != null) {
+            return@withContext DrawableResult(
+                drawable = BitmapDrawable(context.resources, bitmap),
+                isSampled = true,
+                dataSource = DataSource.DISK
+            )
         }
 
-        // 3. If it's a direct audio media URI
-        if (isAudioMediaUri) {
-            val artResult = extractArtFromAudioUri(uri)
-            if (artResult != null) return@withContext artResult
-        }
-
-        null
+        // Step 3: No per-song custom art and no embedded picture -> clean fallback
+        throw FileNotFoundException("No embedded or custom artwork for track: $uri")
     }
 
-    private fun findSongIdForAlbum(albumId: Long): Long? {
-        return try {
-            val projection = arrayOf(MediaStore.Audio.Media._ID)
-            val selection = "${MediaStore.Audio.Media.ALBUM_ID} = ?"
-            val selectionArgs = arrayOf(albumId.toString())
-
-            context.contentResolver.query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                projection,
-                selection,
-                selectionArgs,
-                "${MediaStore.Audio.Media._ID} ASC LIMIT 1"
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    cursor.getLong(0)
-                } else null
-            }
-        } catch (_: Exception) {
-            null
+    private fun extractSongId(targetUri: Uri): Long {
+        if (CustomArtworkManager.isAudioMediaUri(targetUri)) {
+            return targetUri.lastPathSegment?.toLongOrNull() ?: -1L
         }
-    }
-
-    private fun findSongUriForAlbum(albumId: Long): Uri? {
-        return try {
-            val projection = arrayOf(MediaStore.Audio.Media._ID)
-            val selection = "${MediaStore.Audio.Media.ALBUM_ID} = ?"
-            val selectionArgs = arrayOf(albumId.toString())
-
-            context.contentResolver.query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                projection,
-                selection,
-                selectionArgs,
-                "${MediaStore.Audio.Media._ID} ASC LIMIT 1"
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val songId = cursor.getLong(0)
-                    ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, songId)
-                } else null
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun extractArtFromAudioUri(audioUri: Uri): FetchResult? {
-        // Option A: API 29+ loadThumbnail
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                val bitmap = context.contentResolver.loadThumbnail(
-                    audioUri,
-                    Size(512, 512),
-                    null
-                )
-                if (bitmap != null) {
-                    return DrawableResult(
-                        drawable = BitmapDrawable(context.resources, bitmap),
-                        isSampled = false,
-                        dataSource = DataSource.DISK
-                    )
-                }
-            } catch (_: Exception) {
-                // loadThumbnail failed or not supported by provider, try MediaMetadataRetriever
-            }
-        }
-
-        // Option B: MediaMetadataRetriever embeddedPicture
-        try {
-            val mmr = MediaMetadataRetriever()
-            mmr.setDataSource(context, audioUri)
-            val rawBytes = mmr.embeddedPicture
-            mmr.release()
-
-            if (rawBytes != null && rawBytes.isNotEmpty()) {
-                val bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
-                if (bitmap != null) {
-                    return DrawableResult(
-                        drawable = BitmapDrawable(context.resources, bitmap),
-                        isSampled = false,
-                        dataSource = DataSource.DISK
-                    )
-                }
-            }
-        } catch (_: Exception) {
-            // No embedded picture or unreadable format
-        }
-
-        return null
+        return -1L
     }
 
     class Factory(private val context: Context) : Fetcher.Factory<Uri> {
         override fun create(data: Uri, options: Options, imageLoader: ImageLoader): Fetcher? {
-            val uriStr = data.toString()
-            if (uriStr.contains("media/external/audio/albumart") || uriStr.contains("media/external/audio/media")) {
+            if (CustomArtworkManager.isLegacySharedAlbumArtUri(data)) {
+                // Intercept and reject so Coil's ContentUriFetcher never loads shared albumart
+                return AudioArtFetcher(context, data, options)
+            }
+            if (CustomArtworkManager.isAudioMediaUri(data)) {
+                return AudioArtFetcher(context, data, options)
+            }
+            if (isDirectAudioFileUri(data)) {
                 return AudioArtFetcher(context, data, options)
             }
             return null
         }
+
+        private fun isDirectAudioFileUri(uri: Uri): Boolean {
+            if (uri.scheme != "file") return false
+            val lower = uri.path?.lowercase() ?: return false
+            return lower.endsWith(".mp3") ||
+                lower.endsWith(".m4a") ||
+                lower.endsWith(".flac") ||
+                lower.endsWith(".ogg") ||
+                lower.endsWith(".opus") ||
+                lower.endsWith(".wav") ||
+                lower.endsWith(".aac") ||
+                lower.endsWith(".wma")
+        }
+    }
+
+    companion object {
+        private const val MAX_ART_DIMENSION_PX = 640
+    }
+}
+
+/**
+ * Forces unique per-song Coil cache keys for every audio media URI and custom artwork file URI,
+ * ensuring Coil never reuses cached artwork across different songs or stale custom covers.
+ */
+class AudioArtKeyer(private val context: Context) : Keyer<Uri> {
+    override fun key(data: Uri, options: Options): String? {
+        if (CustomArtworkManager.isLegacySharedAlbumArtUri(data)) {
+            return null
+        }
+        if (CustomArtworkManager.isAudioMediaUri(data)) {
+            val songId = data.lastPathSegment?.toLongOrNull() ?: return "song_uri_${data}"
+            val customVer = CustomArtworkManager.getCustomArtworkVersion(context, songId)
+            return "song_art_${songId}_v${customVer}"
+        }
+        if (data.scheme == "file") {
+            val path = data.path ?: return null
+            if (path.contains("custom_artwork/art_")) {
+                val file = File(path)
+                val name = file.nameWithoutExtension // art_<songId>
+                val songId = name.removePrefix("art_").toLongOrNull() ?: -1L
+                val customVer = if (songId > 0L) CustomArtworkManager.getCustomArtworkVersion(context, songId) else 0L
+                val mod = if (file.exists()) file.lastModified() else 0L
+                return "song_custom_art_${songId}_${mod}_v${customVer}"
+            }
+        }
+        return null
     }
 }

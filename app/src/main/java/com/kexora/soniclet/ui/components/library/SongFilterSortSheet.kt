@@ -2,9 +2,7 @@ package com.kexora.soniclet.ui.components.library
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -257,11 +255,6 @@ fun SongFilterSortSheet(
                 .fillMaxWidth()
                 .clip(sheetShape)
                 .background(MaterialTheme.colorScheme.surface)
-                .border(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                    shape = sheetShape
-                )
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp)
                 .testTag("song_filter_sort_sheet")
@@ -282,7 +275,7 @@ fun SongFilterSortSheet(
                 )
             }
 
-            // Compact High-Contrast Header
+            // Borderless High-Contrast Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -292,22 +285,14 @@ fun SongFilterSortSheet(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Tune,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Rounded.Tune,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
                     Column {
                         Text(
                             text = "Filter & Sort",
@@ -332,7 +317,7 @@ fun SongFilterSortSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Uniform 36dp x 36dp Circular Reset Button
+                    // Borderless 34dp Circular Reset Button
                     Surface(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -344,9 +329,9 @@ fun SongFilterSortSheet(
                         },
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                        border = null,
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .testTag("filter_sheet_reset_button")
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -359,14 +344,14 @@ fun SongFilterSortSheet(
                         }
                     }
 
-                    // Uniform 36dp x 36dp Circular Close Button
+                    // Borderless 34dp Circular Close Button
                     Surface(
                         onClick = onDismiss,
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                        border = null,
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .testTag("filter_sheet_close_button")
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -411,7 +396,7 @@ fun SongFilterSortSheet(
                             },
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                            border = null,
                             modifier = Modifier
                                 .height(30.dp)
                                 .testTag("filter_sort_direction_toggle")
@@ -622,27 +607,19 @@ private fun FilterSectionHeader(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(15.dp)
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp)
+        )
         Text(
             text = title,
             style = MaterialTheme.typography.titleSmall.copy(
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.5.sp
             ),
             color = MaterialTheme.colorScheme.onSurface
         )
@@ -680,17 +657,13 @@ private fun HighContrastFilterPill(
         onClick = onClick,
         shape = CircleShape,
         color = bgColor,
-        border = if (isSelected) {
-            null
-        } else {
-            BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
-        },
+        border = null,
         modifier = Modifier
-            .height(36.dp)
+            .height(34.dp)
             .testTag(testTag)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp),
+            modifier = Modifier.padding(horizontal = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -699,14 +672,14 @@ private fun HighContrastFilterPill(
                     imageVector = icon,
                     contentDescription = null,
                     tint = contentColor,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(15.dp)
                 )
             }
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    fontSize = 13.sp
+                    fontSize = 12.5.sp
                 ),
                 color = contentColor,
                 maxLines = 1,

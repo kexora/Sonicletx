@@ -136,9 +136,14 @@ fun SongItemRow(
     var showMenu by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
-    val imageRequest = remember(song.albumArtUri, context) {
+    val artCacheKey = remember(song.id, song.dateAdded, song.albumArtUri, context) {
+        com.kexora.soniclet.utils.CustomArtworkManager.buildSongArtCacheKey(context, song)
+    }
+    val imageRequest = remember(song.albumArtUri, artCacheKey, context) {
         ImageRequest.Builder(context)
             .data(song.albumArtUri)
+            .memoryCacheKey("${artCacheKey}_row")
+            .diskCacheKey(artCacheKey)
             .size(120, 120)
             .scale(Scale.FILL)
             .crossfade(false)

@@ -1096,6 +1096,9 @@ internal class LibraryViewModel(
 
     fun rescanStorage() {
         scope.launch {
+            withContext(Dispatchers.IO) {
+                com.kexora.soniclet.utils.CustomArtworkManager.invalidateCoilCache(vm.context)
+            }
             loadAudioFiles(forceSync = true)
         }
     }

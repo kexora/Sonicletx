@@ -1262,31 +1262,42 @@ object SonicletWidgetManager {
         contentUriString: String?,
         artUriString: String?
     ): Bitmap? {
-        if (artUriString != null) {
-            try {
-                val uri = Uri.parse(artUriString)
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    val bmp = BitmapFactory.decodeStream(stream)
-                    if (bmp != null) return bmp
+        if (!artUriString.isNullOrBlank()) {
+            val parsed = Uri.parse(artUriString)
+            val isBlockedShared = com.kexora.soniclet.utils.CustomArtworkManager.isLegacySharedAlbumArtUri(parsed)
+            val isDirectAudio = com.kexora.soniclet.utils.CustomArtworkManager.isAudioMediaUri(parsed)
+            if (!isBlockedShared && !isDirectAudio) {
+                try {
+                    if (parsed.scheme == "file" && !parsed.path.isNullOrBlank()) {
+                        com.kexora.soniclet.utils.CustomArtworkManager.decodeFileSampled(
+                            filePath = parsed.path!!,
+                            maxDimPx = 512,
+                            preferredConfig = Bitmap.Config.ARGB_8888
+                        )?.let { return it }
+                    } else {
+                        context.contentResolver.openInputStream(parsed)?.use { stream ->
+                            val bmp = BitmapFactory.decodeStream(stream)
+                            if (bmp != null) return bmp
+                        }
+                    }
+                } catch (_: Exception) {
+                    // fallback to embedded art
                 }
-            } catch (_: Exception) {
-                // fallback to embedded art
             }
         }
 
-        if (contentUriString != null) {
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(context, Uri.parse(contentUriString))
-                val picture = retriever.embeddedPicture
-                if (picture != null) {
-                    return BitmapFactory.decodeByteArray(picture, 0, picture.size)
-                }
-            } catch (_: Exception) {
-                // ignore
-            } finally {
-                try { retriever.release() } catch (_: Exception) {}
-            }
+        if (!contentUriString.isNullOrBlank()) {
+            val contentUri = Uri.parse(contentUriString)
+            val songId = if (com.kexora.soniclet.utils.CustomArtworkManager.isAudioMediaUri(contentUri)) {
+                contentUri.lastPathSegment?.toLongOrNull() ?: -1L
+            } else -1L
+            return com.kexora.soniclet.utils.CustomArtworkManager.loadStrictSongArtworkBitmap(
+                context = context,
+                songId = songId,
+                audioUri = contentUri,
+                maxDimPx = 512,
+                preferredConfig = Bitmap.Config.ARGB_8888
+            )
         }
         return null
     }

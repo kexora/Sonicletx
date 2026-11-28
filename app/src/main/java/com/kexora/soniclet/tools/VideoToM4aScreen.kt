@@ -302,12 +302,13 @@ fun VideoToM4aScreen(
                             return@AudioSavedSuccessSection
                         }
                         val song = Song(
-                            id = System.currentTimeMillis(),
+                            id = if (res.mediaStoreSongId > 0L) res.mediaStoreSongId else System.currentTimeMillis(),
                             title = res.title,
                             artist = res.artist,
                             album = res.album,
                             duration = if (res.durationMs > 0L) res.durationMs else (videoMetadata?.durationMs ?: 0L),
                             contentUri = targetUri,
+                            albumArtUri = if (embedCoverArt) (res.albumArtUri ?: targetUri) else null,
                             filePath = res.outputFile?.absolutePath ?: "",
                             folderName = "Soniclet",
                             folderPath = res.outputFile?.parent ?: "Music/Soniclet",
@@ -787,7 +788,7 @@ fun VideoToM4aScreen(
                             inputUri = meta.uri,
                             outputTitle = finalTitle,
                             outputArtist = finalArtist,
-                            outputAlbum = "Saved from Video",
+                            outputAlbum = finalTitle,
                             mode = mode,
                             bitrate = bitrate,
                             startMs = if (isTrimmed) trimStartMs else 0L,

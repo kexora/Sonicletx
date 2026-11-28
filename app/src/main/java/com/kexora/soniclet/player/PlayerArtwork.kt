@@ -48,6 +48,7 @@ import com.kexora.soniclet.lyrics.TimeSyncedKaraokeView
 import com.kexora.soniclet.ui.components.player.AudioFidelityInspectorBar
 import com.kexora.soniclet.ui.components.player.FallbackAlbumArt
 import com.kexora.soniclet.utils.CompatBlurTransformation
+import com.kexora.soniclet.utils.CustomArtworkManager
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -119,18 +120,26 @@ fun DhunArtBackdrop(
             )
     )
 
-    // Layer 3: Full-bleed heavily blurred album artwork
+    // Layer 3: Full-bleed heavily blurred album artwork (strictly keyed per song)
     if (hasArtwork) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
+        val artCacheKey = remember(song.id, song.dateAdded, song.albumArtUri, context) {
+            CustomArtworkManager.buildSongArtCacheKey(context, song)
+        }
+        val backdropRequest = remember(song.albumArtUri, artCacheKey, context) {
+            ImageRequest.Builder(context)
                 .data(song.albumArtUri)
+                .memoryCacheKey("${artCacheKey}_backdrop")
+                .diskCacheKey(artCacheKey)
                 .crossfade(220)
                 .apply {
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                         transformations(CompatBlurTransformation(context, radius = 25, sampling = 6f))
                     }
                 }
-                .build(),
+                .build()
+        }
+        AsyncImage(
+            model = backdropRequest,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             filterQuality = FilterQuality.Medium,
@@ -348,9 +357,14 @@ fun DhunPortraitArtCard(
                         ) { targetSong ->
                             Box(modifier = Modifier.fillMaxSize()) {
                                 if (targetSong.albumArtUri != null) {
+                                    val portraitArtKey = remember(targetSong.id, targetSong.dateAdded, targetSong.albumArtUri, context) {
+                                        CustomArtworkManager.buildSongArtCacheKey(context, targetSong)
+                                    }
                                     SubcomposeAsyncImage(
                                         model = ImageRequest.Builder(context)
                                             .data(targetSong.albumArtUri)
+                                            .memoryCacheKey(portraitArtKey)
+                                            .diskCacheKey(portraitArtKey)
                                             .crossfade(true)
                                             .build(),
                                         contentDescription = "Album Art — tap for lyrics or swipe to skip",
@@ -456,9 +470,14 @@ fun DhunLandscapeArtCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (song.albumArtUri != null) {
+                    val landscapeArtKey = remember(song.id, song.dateAdded, song.albumArtUri, context) {
+                        CustomArtworkManager.buildSongArtCacheKey(context, song)
+                    }
                     SubcomposeAsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(song.albumArtUri)
+                            .memoryCacheKey(landscapeArtKey)
+                            .diskCacheKey(landscapeArtKey)
                             .crossfade(true)
                             .build(),
                         contentDescription = "Album Art",

@@ -666,8 +666,11 @@ internal class AudioFxViewModel(
 
         scope.launch(Dispatchers.IO) {
             try {
+                val artCacheKey = com.kexora.soniclet.utils.CustomArtworkManager.buildSongArtCacheKey(vm.context, song)
                 val request = ImageRequest.Builder(vm.context)
                     .data(song.albumArtUri)
+                    .memoryCacheKey("${artCacheKey}_palette")
+                    .diskCacheKey(artCacheKey)
                     .allowHardware(false)
                     .size(64, 64)
                     .build()
@@ -691,7 +694,11 @@ internal class AudioFxViewModel(
                                 kariDarkMutedColor = darkMutedColor
                             )
                         }
+                    } else {
+                        vm._uiState.update { it.copy(kariDominantColor = null, kariVibrantColor = null, kariDarkMutedColor = null) }
                     }
+                } else {
+                    vm._uiState.update { it.copy(kariDominantColor = null, kariVibrantColor = null, kariDarkMutedColor = null) }
                 }
             } catch (_: Exception) {
                 vm._uiState.update { it.copy(kariDominantColor = null, kariVibrantColor = null, kariDarkMutedColor = null) }

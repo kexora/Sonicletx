@@ -2483,17 +2483,14 @@ internal class MediaRepository(
 ) {
     private val contentResolver get() = context.contentResolver
 
-    fun getAlbumArtUri(albumId: Long): Uri? {
-        if (albumId <= 0) return null
-        return try {
-            ContentUris.withAppendedId(
-                Uri.parse("content://media/external/audio/albumart"),
-                albumId
-            )
-        } catch (e: Exception) {
-            null
-        }
-    }
+    /**
+     * Intentionally returns null — Android's shared content://media/external/audio/albumart/$albumId
+     * table merges unrelated songs in folders (Downloads, Music/Soniclet, WhatsApp Audio) under one
+     * albumId and pollutes artwork. Soniclet resolves artwork strictly per song via CustomArtworkManager
+     * and each track's own MediaMetadataRetriever embedded picture.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun getAlbumArtUri(albumId: Long): Uri? = null
 
     fun extractFolderInfo(filePath: String?, relativePath: String?): Pair<String, String> {
         if (!filePath.isNullOrBlank()) {
@@ -2594,7 +2591,8 @@ internal class MediaRepository(
                     if (mimeType == null || isSupportedAudioFormat(mimeType)) {
                         val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
                         val customArt = com.kexora.soniclet.utils.CustomArtworkManager.getCustomArtworkUri(context, id)
-                        val albumArtUri = customArt ?: getAlbumArtUri(albumId)
+                        // Strict per-song isolation: custom art for this exact songId, or this track's own audio contentUri
+                        val albumArtUri = customArt ?: contentUri
 
                         val cleanArtist = if (artist.isBlank() || artist.trim().equals("<unknown>", ignoreCase = true) || artist.trim().equals("unknown", ignoreCase = true)) {
                             "Unknown Artist"
@@ -2666,8 +2664,16 @@ internal class MediaRepository(
             val cleanAlbum = if (s.album.isBlank() || s.album.trim().equals("<unknown>", ignoreCase = true) || s.album.trim().equals("unknown", ignoreCase = true)) {
                 "Unknown Album"
             } else s.album
-            if (cleanArtist != s.artist || cleanAlbum != s.album) {
-                s.copy(artist = cleanArtist, album = cleanAlbum)
+
+            // Migrate any legacy shared albumart/$albumId URI from cached DB rows to strict per-song URI
+            val cleanArtUri = if (com.kexora.soniclet.utils.CustomArtworkManager.isLegacySharedAlbumArtUri(s.albumArtUri)) {
+                com.kexora.soniclet.utils.CustomArtworkManager.getCustomArtworkUri(context, s.id) ?: s.contentUri
+            } else {
+                s.albumArtUri
+            }
+
+            if (cleanArtist != s.artist || cleanAlbum != s.album || cleanArtUri != s.albumArtUri) {
+                s.copy(artist = cleanArtist, album = cleanAlbum, albumArtUri = cleanArtUri)
             } else s
         }
     }
@@ -2689,6 +2695,7 @@ internal class MediaRepository(
         minDurationMs: Long,
         manualFolderUris: Set<String>
     ): List<Song> = withContext(Dispatchers.IO) {
+        com.kexora.soniclet.utils.CustomArtworkManager.purgeStaleArtworkCacheOnce(context)
         val distinctSongsList = scanAllSongsInternal(excludedFolderPaths, minDurationMs, manualFolderUris)
         songDao.replaceAllSongs(distinctSongsList)
         distinctSongsList

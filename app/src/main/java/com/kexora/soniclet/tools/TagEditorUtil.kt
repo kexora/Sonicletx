@@ -550,4 +550,54 @@ object TagEditorUtil {
             null
         }
     }
+
+    /**
+     * Writes clean MP4/M4A metadata (TITLE, ARTIST, unique per-track ALBUM) and either embeds
+     * a real JPEG cover image into the MP4 `covr` atom or deletes the artwork atom cleanly
+     * when `coverJpegBytes` is null.
+     */
+    fun embedM4aMetadataAndCover(
+        file: File,
+        title: String,
+        artist: String,
+        album: String,
+        coverJpegBytes: ByteArray?
+    ): Boolean {
+        return try {
+            TagOptionSingleton.getInstance().isAndroid = true
+            val audioFile = AudioFileIO.read(file)
+            val tag = audioFile.tagOrCreateAndSetDefault
+
+            tag.setField(FieldKey.TITLE, title.trim().ifBlank { "Saved Audio" })
+            tag.setField(FieldKey.ARTIST, artist.trim().ifBlank { "Soniclet" })
+
+            val cleanAlbum = album.trim()
+            if (cleanAlbum.isNotBlank()) {
+                tag.setField(FieldKey.ALBUM, cleanAlbum)
+            } else {
+                try {
+                    tag.deleteField(FieldKey.ALBUM)
+                } catch (_: Throwable) {}
+            }
+
+            try {
+                tag.deleteArtworkField()
+            } catch (_: Throwable) {}
+
+            if (coverJpegBytes != null && coverJpegBytes.isNotEmpty()) {
+                val artwork = ArtworkFactory.getNew().apply {
+                    binaryData = coverJpegBytes
+                    mimeType = "image/jpeg"
+                    pictureType = 3 // Front cover
+                }
+                tag.setField(artwork)
+            }
+
+            audioFile.commit()
+            true
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed writing M4A metadata/covr atom: ${e.message}")
+            false
+        }
+    }
 }

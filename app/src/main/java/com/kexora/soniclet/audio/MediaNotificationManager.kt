@@ -744,97 +744,28 @@ object MediaNotificationManager {
 
         val targetSize = 256
 
-        // 1. Check custom artwork saved by user
-        try {
-            val customArt = CustomArtworkManager.getCustomArtworkUri(context, song.id)
-            if (customArt?.path != null) {
-                val file = java.io.File(customArt.path!!)
-                if (file.exists()) {
-                    val boundsOptions = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    android.graphics.BitmapFactory.decodeFile(file.absolutePath, boundsOptions)
-                    val sampleSize = calculateInSampleSize(boundsOptions, targetSize, targetSize)
-                    val decodeOptions = android.graphics.BitmapFactory.Options().apply {
-                        inSampleSize = sampleSize
-                        inPreferredConfig = Bitmap.Config.RGB_565
-                    }
-                    val bm = android.graphics.BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
-                    if (bm != null) {
-                        val scaled = Bitmap.createScaledBitmap(bm, targetSize, targetSize, true)
-                        cachedArtworkSongId = song.id
-                        cachedArtworkBitmap = scaled
-                        return scaled
-                    }
-                }
+        // Strict per-song isolation: custom artwork for song.id -> track's own embedded picture -> fallback vinyl art
+        // NEVER uses MediaStore loadThumbnail or shared content://media/external/audio/albumart/$albumId
+        val resolved = CustomArtworkManager.loadStrictSongArtworkBitmap(
+            context = context,
+            songId = song.id,
+            audioUri = song.contentUri,
+            maxDimPx = targetSize,
+            preferredConfig = Bitmap.Config.RGB_565
+        )
+        if (resolved != null) {
+            val scaled = if (resolved.width != targetSize || resolved.height != targetSize) {
+                Bitmap.createScaledBitmap(resolved, targetSize, targetSize, true)
+            } else {
+                resolved
             }
-        } catch (_: Exception) {}
-
-        // 2. Android 10+ (API 29+) MediaStore loadThumbnail - fast, official, handles all formats
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                val thumb = context.contentResolver.loadThumbnail(song.contentUri, Size(targetSize, targetSize), null)
-                if (thumb != null) {
-                    val scaled = if (thumb.width != targetSize || thumb.height != targetSize) {
-                        Bitmap.createScaledBitmap(thumb, targetSize, targetSize, true)
-                    } else {
-                        thumb
-                    }
-                    cachedArtworkSongId = song.id
-                    cachedArtworkBitmap = scaled
-                    return scaled
-                }
-            } catch (_: Exception) {}
-        }
-
-        // 3. Direct albumArtUri stream
-        if (song.albumArtUri != null) {
-            try {
-                val boundsOptions = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                context.contentResolver.openInputStream(song.albumArtUri)?.use { stream ->
-                    android.graphics.BitmapFactory.decodeStream(stream, null, boundsOptions)
-                }
-
-                val sampleSize = calculateInSampleSize(boundsOptions, targetSize, targetSize)
-                val decodeOptions = android.graphics.BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                    inPreferredConfig = Bitmap.Config.RGB_565
-                }
-
-                context.contentResolver.openInputStream(song.albumArtUri)?.use { stream ->
-                    val bm = android.graphics.BitmapFactory.decodeStream(stream, null, decodeOptions)
-                    if (bm != null) {
-                        val scaled = Bitmap.createScaledBitmap(bm, targetSize, targetSize, true)
-                        cachedArtworkSongId = song.id
-                        cachedArtworkBitmap = scaled
-                        return scaled
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-
-        // 4. MediaMetadataRetriever embedded picture
-        try {
-            val retriever = MediaMetadataRetriever()
-            retriever.setDataSource(context, song.contentUri)
-            val embeddedArt = retriever.embeddedPicture
-            retriever.release()
-            if (embeddedArt != null && embeddedArt.isNotEmpty()) {
-                val boundsOptions = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                android.graphics.BitmapFactory.decodeByteArray(embeddedArt, 0, embeddedArt.size, boundsOptions)
-
-                val sampleSize = calculateInSampleSize(boundsOptions, targetSize, targetSize)
-                val decodeOptions = android.graphics.BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                    inPreferredConfig = Bitmap.Config.RGB_565
-                }
-                val bm = android.graphics.BitmapFactory.decodeByteArray(embeddedArt, 0, embeddedArt.size, decodeOptions)
-                if (bm != null) {
-                    val scaled = Bitmap.createScaledBitmap(bm, targetSize, targetSize, true)
-                    cachedArtworkSongId = song.id
-                    cachedArtworkBitmap = scaled
-                    return scaled
-                }
+            if (scaled !== resolved && !resolved.isRecycled) {
+                resolved.recycle()
             }
-        } catch (_: Exception) {}
+            cachedArtworkSongId = song.id
+            cachedArtworkBitmap = scaled
+            return scaled
+        }
 
         // 5. Fallback dynamic vinyl art
         val defaultBm = createDefaultArtworkBitmap(context, song.title, targetSize)

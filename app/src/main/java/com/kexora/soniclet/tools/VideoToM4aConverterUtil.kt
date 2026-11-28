@@ -1,5 +1,6 @@
 package com.kexora.soniclet.tools
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
@@ -24,6 +25,7 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import com.kexora.soniclet.utils.CustomArtworkManager
 import com.kexora.soniclet.utils.SmartTitleCleaner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,10 +34,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.jaudiotagger.audio.AudioFileIO
-import org.jaudiotagger.tag.FieldKey
-import org.jaudiotagger.tag.images.ArtworkFactory
-import org.jaudiotagger.tag.reference.PictureTypes
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -56,7 +54,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 object VideoToM4aConverterUtil {
 
     private const val TAG = "VideoToM4aConverter"
-    private const val MAX_THUMBNAIL_DIM = 512
+    private const val MAX_THUMBNAIL_DIM = 600
+    private const val COVER_JPEG_QUALITY = 90
 
     enum class ConversionMode(val label: String, val description: String) {
         DIRECT_LOSSLESS("Original Quality", "Fastest — keeps the video's exact sound"),
@@ -92,7 +91,7 @@ object VideoToM4aConverterUtil {
         val inputUri: Uri,
         val outputTitle: String,
         val outputArtist: String = "Soniclet",
-        val outputAlbum: String = "Saved from Video",
+        val outputAlbum: String = "",
         val mode: ConversionMode = ConversionMode.DIRECT_LOSSLESS,
         val bitrate: AudioBitrate = AudioBitrate.BITRATE_256,
         val startMs: Long = 0L,
@@ -109,7 +108,9 @@ object VideoToM4aConverterUtil {
         val album: String,
         val durationMs: Long,
         val fileSizeFormatted: String,
-        val bitrateInfo: String
+        val bitrateInfo: String,
+        val mediaStoreSongId: Long = -1L,
+        val albumArtUri: Uri? = null
     )
 
     /**
@@ -312,13 +313,22 @@ object VideoToM4aConverterUtil {
                 }
 
                 if (extracted && tempOutputFile.exists() && tempOutputFile.length() > 0L) {
-                    embedMetadataAndCover(tempOutputFile, config)
+                    val embeddedCoverBitmap = embedMetadataAndCover(context, tempOutputFile, config)
                     val qualityLabel = if (config.mode == ConversionMode.DIRECT_LOSSLESS) {
                         "Original Quality"
                     } else {
                         "${config.bitrate.kbps} kbps"
                     }
-                    val savedResult = saveToDeviceMusicStorage(context, tempOutputFile, config, qualityLabel)
+                    val savedResult = saveToDeviceMusicStorage(
+                        context = context,
+                        tempFile = tempOutputFile,
+                        config = config,
+                        bitrateInfo = qualityLabel,
+                        coverBitmap = embeddedCoverBitmap
+                    )
+                    if (embeddedCoverBitmap != null && embeddedCoverBitmap !== config.thumbnailBitmap && !embeddedCoverBitmap.isRecycled) {
+                        embeddedCoverBitmap.recycle()
+                    }
                     safeDelete(tempOutputFile)
                     withContext(Dispatchers.Main) {
                         onProgress(100)
@@ -832,13 +842,22 @@ object VideoToM4aConverterUtil {
                     pollingJob?.cancel()
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            embedMetadataAndCover(tempOutputFile, config)
+                            val embeddedCoverBitmap = embedMetadataAndCover(context, tempOutputFile, config)
                             val bitrateLabel = if (config.mode == ConversionMode.CUSTOM_QUALITY) {
                                 "${config.bitrate.kbps} kbps"
                             } else {
                                 "Original Quality"
                             }
-                            val savedResult = saveToDeviceMusicStorage(context, tempOutputFile, config, bitrateLabel)
+                            val savedResult = saveToDeviceMusicStorage(
+                                context = context,
+                                tempFile = tempOutputFile,
+                                config = config,
+                                bitrateInfo = bitrateLabel,
+                                coverBitmap = embeddedCoverBitmap
+                            )
+                            if (embeddedCoverBitmap != null && embeddedCoverBitmap !== config.thumbnailBitmap && !embeddedCoverBitmap.isRecycled) {
+                                embeddedCoverBitmap.recycle()
+                            }
                             safeDelete(tempOutputFile)
                             withContext(Dispatchers.Main) {
                                 onProgress(100)
@@ -897,42 +916,110 @@ object VideoToM4aConverterUtil {
         }
     }
 
-    private fun embedMetadataAndCover(file: File, config: ConversionConfig) {
-        try {
-            val audioFile = AudioFileIO.read(file)
-            val tag = audioFile.tagOrCreateAndSetDefault
-            tag.setField(FieldKey.TITLE, config.outputTitle.ifBlank { "Saved Audio" })
-            tag.setField(FieldKey.ARTIST, config.outputArtist.ifBlank { "Soniclet" })
-            tag.setField(FieldKey.ALBUM, config.outputAlbum.ifBlank { "Saved from Video" })
+    /**
+     * Resolves a unique per-track album tag so Android MediaStore NEVER merges separate
+     * video-to-audio tracks under a shared albumId ("Saved from Video" / "Soniclet").
+     */
+    private fun resolveUniqueTrackAlbum(config: ConversionConfig): String {
+        val candidate = config.outputAlbum.trim()
+        val isSharedGeneric = candidate.isBlank() ||
+            candidate.equals("Saved from Video", ignoreCase = true) ||
+            candidate.equals("Soniclet", ignoreCase = true) ||
+            candidate.equals("Unknown Album", ignoreCase = true)
+        return if (isSharedGeneric) {
+            config.outputTitle.trim()
+        } else {
+            candidate
+        }
+    }
 
-            val thumb = config.thumbnailBitmap
-            if (config.embedThumbnail && thumb != null && !thumb.isRecycled) {
-                try {
-                    val stream = ByteArrayOutputStream()
-                    thumb.compress(Bitmap.CompressFormat.JPEG, 85, stream)
-                    val artwork = ArtworkFactory.getNew().apply {
-                        binaryData = stream.toByteArray()
-                        mimeType = "image/jpeg"
-                        pictureType = PictureTypes.DEFAULT_ID
+    /**
+     * Extracts a crisp 600x600 video frame from the picked video on IO thread,
+     * always releasing MediaMetadataRetriever inside finally.
+     */
+    private fun extractCrispVideoCoverFrame(context: Context, videoUri: Uri, preferredStartMs: Long): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, videoUri)
+            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            val frameTimeUs = when {
+                preferredStartMs > 0L -> preferredStartMs * 1000L
+                durationMs > 4_000L -> 1_500_000L
+                durationMs > 1_000L -> 500_000L
+                else -> 0L
+            }
+            val rawFrame = retriever.getFrameAtTime(frameTimeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            downscaleBitmapSafely(rawFrame, MAX_THUMBNAIL_DIM)
+        } catch (e: Exception) {
+            Log.w(TAG, "Video frame extraction fallback warning: ${e.message}")
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Writes clean MP4 tags + real 600x600 JPEG video frame into the `.m4a` `covr` atom
+     * BEFORE publishing to MediaStore. When `embedThumbnail` is OFF, explicitly clears `covr`.
+     * Returns the 600x600 cover Bitmap when embedded (null otherwise) so MediaStore save can bind it per-song.
+     */
+    private fun embedMetadataAndCover(
+        context: Context,
+        file: File,
+        config: ConversionConfig
+    ): Bitmap? {
+        val uniqueAlbum = resolveUniqueTrackAlbum(config)
+        var coverBitmap: Bitmap? = null
+        var coverJpegBytes: ByteArray? = null
+
+        if (config.embedThumbnail) {
+            coverBitmap = extractCrispVideoCoverFrame(context, config.inputUri, config.startMs)
+                ?: config.thumbnailBitmap?.takeIf { !it.isRecycled }?.let { fallbackThumb ->
+                    val largest = maxOf(fallbackThumb.width, fallbackThumb.height)
+                    if (largest > MAX_THUMBNAIL_DIM) {
+                        val scale = MAX_THUMBNAIL_DIM.toFloat() / largest.toFloat()
+                        Bitmap.createScaledBitmap(
+                            fallbackThumb,
+                            (fallbackThumb.width * scale).toInt().coerceAtLeast(1),
+                            (fallbackThumb.height * scale).toInt().coerceAtLeast(1),
+                            true
+                        )
+                    } else {
+                        fallbackThumb
                     }
-                    tag.deleteArtworkField()
-                    tag.setField(artwork)
+                }
+
+            if (coverBitmap != null && !coverBitmap.isRecycled) {
+                try {
+                    val baos = ByteArrayOutputStream()
+                    coverBitmap.compress(Bitmap.CompressFormat.JPEG, COVER_JPEG_QUALITY, baos)
+                    coverJpegBytes = baos.toByteArray()
                 } catch (e: Exception) {
-                    Log.w(TAG, "Non-fatal cover art embed warning: ${e.message}")
+                    Log.w(TAG, "Cover JPEG compression warning: ${e.message}")
                 }
             }
-
-            audioFile.commit()
-        } catch (e: Exception) {
-            Log.w(TAG, "Non-fatal tag write warning: ${e.message}")
         }
+
+        TagEditorUtil.embedM4aMetadataAndCover(
+            file = file,
+            title = config.outputTitle.ifBlank { "Saved Audio" },
+            artist = config.outputArtist.ifBlank { "Soniclet" },
+            album = uniqueAlbum,
+            coverJpegBytes = if (config.embedThumbnail) coverJpegBytes else null
+        )
+
+        return if (config.embedThumbnail) coverBitmap else null
     }
 
     private fun saveToDeviceMusicStorage(
         context: Context,
         tempFile: File,
         config: ConversionConfig,
-        bitrateInfo: String
+        bitrateInfo: String,
+        coverBitmap: Bitmap?
     ): ConversionResult {
         val safeName = config.outputTitle
             .replace(Regex("[^a-zA-Z0-9._ -]"), "_")
@@ -940,9 +1027,12 @@ object VideoToM4aConverterUtil {
             .ifEmpty { "Soniclet_Audio" }
         val displayName = "$safeName.m4a"
         val fileBytes = tempFile.length()
+        val uniqueAlbum = resolveUniqueTrackAlbum(config)
 
         var finalFile: File? = null
         var finalUri: Uri? = null
+        var resolvedSongId = -1L
+        var savedCustomArtUri: Uri? = null
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // Scoped Storage safe save into Music/Soniclet
@@ -951,7 +1041,7 @@ object VideoToM4aConverterUtil {
                     put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
                     put(MediaStore.Audio.Media.TITLE, config.outputTitle)
                     put(MediaStore.Audio.Media.ARTIST, config.outputArtist)
-                    put(MediaStore.Audio.Media.ALBUM, config.outputAlbum)
+                    put(MediaStore.Audio.Media.ALBUM, uniqueAlbum)
                     put(MediaStore.Audio.Media.MIME_TYPE, "audio/mp4")
                     put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/Soniclet")
                     put(MediaStore.Audio.Media.IS_PENDING, 1)
@@ -966,6 +1056,37 @@ object VideoToM4aConverterUtil {
                     values.put(MediaStore.Audio.Media.IS_PENDING, 0)
                     context.contentResolver.update(insertedUri, values, null, null)
                     finalUri = insertedUri
+                    resolvedSongId = try {
+                        ContentUris.parseId(insertedUri)
+                    } catch (_: Exception) {
+                        -1L
+                    }
+
+                    // Bind per-song cover art immediately to this exact MediaStore songId
+                    if (resolvedSongId > 0L) {
+                        if (config.embedThumbnail && coverBitmap != null && !coverBitmap.isRecycled) {
+                            savedCustomArtUri = CustomArtworkManager.saveCustomArtworkBitmap(
+                                context = context,
+                                songId = resolvedSongId,
+                                bitmap = coverBitmap,
+                                maxDim = MAX_THUMBNAIL_DIM,
+                                jpegQuality = COVER_JPEG_QUALITY
+                            )
+                        } else {
+                            CustomArtworkManager.clearCustomArtwork(context, resolvedSongId)
+                        }
+                        CustomArtworkManager.invalidateSongArtCache(context, resolvedSongId)
+                    }
+
+                    // Trigger MediaScannerConnection on resolved filesystem path for instant indexing
+                    queryPathForUri(context, insertedUri)?.let { realPath ->
+                        MediaScannerConnection.scanFile(
+                            context,
+                            arrayOf(realPath),
+                            arrayOf("audio/mp4"),
+                            null
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "MediaStore insert failed: ${e.message}")
@@ -981,12 +1102,35 @@ object VideoToM4aConverterUtil {
                     FileOutputStream(targetFile).use { output -> input.copyTo(output) }
                 }
                 finalFile = targetFile
+                val coverCopy = if (config.embedThumbnail && coverBitmap != null && !coverBitmap.isRecycled) {
+                    coverBitmap.copy(Bitmap.Config.ARGB_8888, false)
+                } else null
                 MediaScannerConnection.scanFile(
                     context,
                     arrayOf(targetFile.absolutePath),
                     arrayOf("audio/mp4")
                 ) { _, uri ->
-                    if (finalUri == null && uri != null) finalUri = uri
+                    if (uri != null) {
+                        if (finalUri == null) finalUri = uri
+                        val scannedId = try { ContentUris.parseId(uri) } catch (_: Exception) { -1L }
+                        if (scannedId > 0L) {
+                            if (config.embedThumbnail && coverCopy != null && !coverCopy.isRecycled) {
+                                CustomArtworkManager.saveCustomArtworkBitmap(
+                                    context = context,
+                                    songId = scannedId,
+                                    bitmap = coverCopy,
+                                    maxDim = MAX_THUMBNAIL_DIM,
+                                    jpegQuality = COVER_JPEG_QUALITY
+                                )
+                            } else {
+                                CustomArtworkManager.clearCustomArtwork(context, scannedId)
+                            }
+                            CustomArtworkManager.invalidateSongArtCache(context, scannedId)
+                        }
+                    }
+                    if (coverCopy != null && !coverCopy.isRecycled) {
+                        coverCopy.recycle()
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Legacy public Music save failed: ${e.message}")
@@ -1011,16 +1155,45 @@ object VideoToM4aConverterUtil {
             0L
         }
 
+        val resolvedArtUri = when {
+            !config.embedThumbnail -> null
+            savedCustomArtUri != null -> savedCustomArtUri
+            finalUri != null -> finalUri
+            finalFile != null -> Uri.fromFile(finalFile)
+            else -> null
+        }
+
         return ConversionResult(
             outputFile = finalFile,
             outputUri = finalUri,
             title = config.outputTitle,
             artist = config.outputArtist,
-            album = config.outputAlbum,
+            album = uniqueAlbum,
             durationMs = durationMs,
             fileSizeFormatted = formatFileSize(finalFile?.length() ?: fileBytes),
-            bitrateInfo = bitrateInfo
+            bitrateInfo = bitrateInfo,
+            mediaStoreSongId = resolvedSongId,
+            albumArtUri = resolvedArtUri
         )
+    }
+
+    private fun queryPathForUri(context: Context, uri: Uri): String? {
+        return try {
+            context.contentResolver.query(
+                uri,
+                arrayOf(MediaStore.Audio.Media.DATA),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
+                    if (idx != -1) cursor.getString(idx) else null
+                } else null
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun uniqueTargetFile(dir: File, baseName: String, ext: String): File {

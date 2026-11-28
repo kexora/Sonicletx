@@ -47,6 +47,7 @@ class SonicletApplication : Application(), Configuration.Provider, ImageLoaderFa
 
     override fun onCreate() {
         super.onCreate()
+        com.kexora.soniclet.utils.CustomArtworkManager.purgeStaleArtworkCacheOnce(this)
         scheduleAudioScanner()
         com.kexora.soniclet.worker.SpecialDateNotificationWorker.schedule(this)
     }
@@ -81,6 +82,7 @@ class SonicletApplication : Application(), Configuration.Provider, ImageLoaderFa
             .crossfade(false) // Disable heavy crossfade transitions on budget GPUs
             .respectCacheHeaders(false)
             .components {
+                add(com.kexora.soniclet.utils.AudioArtKeyer(this@SonicletApplication))
                 add(com.kexora.soniclet.utils.AudioArtFetcher.Factory(this@SonicletApplication))
             }
             .build()

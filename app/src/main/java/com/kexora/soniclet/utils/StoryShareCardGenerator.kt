@@ -30,21 +30,14 @@ object StoryShareCardGenerator {
         val bgPaint = Paint().apply { color = Color.parseColor("#121212") }
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
         
-        // 2. Load album art
-        var albumArt: Bitmap? = null
-        try {
-            if (song.albumArtUri != null) {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                    val source = android.graphics.ImageDecoder.createSource(context.contentResolver, song.albumArtUri)
-                    albumArt = android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-                        decoder.isMutableRequired = true
-                    }
-                } else {
-                    @Suppress("DEPRECATION")
-                    albumArt = MediaStore.Images.Media.getBitmap(context.contentResolver, song.albumArtUri)
-                }
-            }
-        } catch (e: Exception) { e.printStackTrace() }
+        // 2. Load strict per-song album art (custom or track's own embedded picture)
+        val albumArt: Bitmap? = CustomArtworkManager.loadStrictSongArtworkBitmap(
+            context = context,
+            songId = song.id,
+            audioUri = song.contentUri,
+            maxDimPx = 800,
+            preferredConfig = Bitmap.Config.ARGB_8888
+        )
         
         // 3. Draw Album Art
         val artSize = 800f
